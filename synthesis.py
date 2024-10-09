@@ -1,7 +1,7 @@
 import io
 import logging
-import regex as re
 
+import regex as re
 from gtts import gTTS
 
 
