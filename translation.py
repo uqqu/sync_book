@@ -6,7 +6,7 @@ import argostranslate.translate
 
 
 class Translator:
-    def __init__(self, source_lang: str, target_lang: str):
+    def __init__(self, source_lang: str, target_lang: str) -> None:
         self.source_lang = source_lang
         self.target_lang = target_lang
         argostranslate.package.update_package_index()
@@ -17,5 +17,5 @@ class Translator:
         argostranslate.package.install_from_path(package_to_install.download())
 
     @cache
-    def translate(self, text):
+    def translate(self, text: str) -> str:
         return argostranslate.translate.translate(text, self.source_lang, self.target_lang)

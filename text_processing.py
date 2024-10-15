@@ -3,13 +3,12 @@ import logging
 import spacy
 import torch
 from spacy.tokens import Doc, Token
-from spacy.util import filter_spans
 from transformers import AutoModel, AutoTokenizer
 
 
 class TextProcessing:
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, config: 'Config') -> None:
+        self.source_lang = config.source_lang
 
         self.nlp_src = spacy.load(config.source_model)
         self.nlp_trg = spacy.load(config.target_model)
@@ -22,25 +21,17 @@ class TextProcessing:
         self.embedding_tokenizer = AutoTokenizer.from_pretrained(embedding_model_name)
         self.embedding_model = AutoModel.from_pretrained(embedding_model_name)
 
-        if not Token.has_extension('embedding'):
-            Token.set_extension('embedding', default=None)
-
         for param in self.embedding_model.parameters():
             param.requires_grad = False
 
     def get_sentences(self, text: str) -> list[str]:
         return [sentence.text for sentence in self.nlp_src(text).sents]
 
-    def get_tokens_src(self, sentence: str) -> Doc:
-        return self.nlp_src(sentence)
-
-    def get_tokens_trg(self, sentence: str) -> Doc:
-        return self.nlp_trg(sentence)
+    def get_tokens(self, sentence: str, is_source: bool) -> Doc:
+        return self.nlp_src(sentence) if is_source else self.nlp_trg(sentence)
 
     def get_merged_tokens(self, sentence: str, lang: str) -> list[Token]:
-        if lang == self.config.source_lang:
-            return self._merge_tokens(self.get_tokens_src(sentence))
-        return self._merge_tokens(self.get_tokens_trg(sentence))
+        return self._merge_tokens(self.get_tokens(sentence, lang == self.source_lang))
 
     @staticmethod
     def _merge_tokens(doc: Doc) -> list[Token]:
@@ -60,7 +51,7 @@ class TextProcessing:
                 logging.debug(f'Adding span to merge (complex hyphenated chain): {doc[start:end]}')
                 i = end - 1
             i += 1
-        filtered_spans = filter_spans(spans_to_merge)
+        filtered_spans = spacy.util.filter_spans(spans_to_merge)
         with doc.retokenize() as retokenizer:
             for span in filtered_spans:
                 retokenizer.merge(span)

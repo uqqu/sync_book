@@ -4,22 +4,28 @@ from config import Config
 
 
 class BaseNode:
+    '''Parent for entities and lemmas.'''
+
     def __init__(self, intervals: list[int]) -> None:
         self.intervals = intervals
         self.last_pos = 0
         self.level = 0
 
     def check_repeat(self, position: int) -> bool:
+        '''Check the necessary distance to repeat (reinforce) both the lemma and the wordform.'''
         if not self.level:
             return True
         return self.intervals[self.level] < position - self.last_pos
 
     def update(self, new_pos: int) -> None:
+        '''Update repeat distance.'''
         self.level += 1
         self.last_pos = new_pos
 
 
 class Entity(BaseNode):
+    '''Leaf for LemmaDict and LemmaTrie that stores translation and it repeat distance.'''
+
     intervals = Config().entity_intervals
 
     def __init__(self, translation: str) -> None:
@@ -33,6 +39,7 @@ class LemmaDict(BaseNode):
     Dict takes into account texts along with lemmas.
     Root contain second level 'LemmaDict' objects by combination both source and target lemmas,
         second level in turn contain 'Entity' objects by raw text, to separate word forms.
+    As BaseNode successor it can be checked by repeat distance.
     '''
 
     intervals = Config().lemma_intervals
