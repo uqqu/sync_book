@@ -16,7 +16,7 @@ class Config:
         self.target_full_lang = 'russian'
         self.lang_delimiter = ''  # '\u200B'
 
-        self.min_align_weight = 0.6
+        self.min_align_weight = 0.7
         self.lemma_intervals = tuple(b - a for a, b in pairwise(int(1.05**i) for i in range(190, 600)))
         self.entity_intervals = tuple(b - a for a, b in pairwise(int(1.1**i) for i in range(190, 600)))
 
@@ -25,7 +25,11 @@ class Config:
         self.untranslatable_entities = {'PERSON', 'DATE'}  # TODO PRODUCT, TIME?
         self.word_pattern = re.compile(r"^\p{L}[\p{L}\p{Pd}'’ʼ]*\p{L}$")
 
+        self.input_storage_filename = 'lemmas'
+        self.output_storage_filename = 'lemmas'
+        self.save_results = True
         self.speech_synth = True
+        self.use_translation_file = True
 
         # synthesis with post audio alignment to reuse words for the dictionary from generated sentence
         self.mfa_use = False  # extremely long and jerkily :x

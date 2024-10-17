@@ -13,7 +13,7 @@ class Sentence:
         self.current_pos = current_pos
         self.container = container
         self.config = container.config
-        self.translated_sentence = self.container.translator.translate(sentence)
+        self.translated_sentence = self.container.translator.get_translated_sentence(sentence)
 
         self.tokens_src = container.text_processor.get_merged_tokens(self.sentence, lang=self.config.source_lang)
         self.tokens_trg = container.text_processor.get_merged_tokens(

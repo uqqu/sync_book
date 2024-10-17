@@ -21,7 +21,7 @@ class DependencyContainer:
         self.aligner = SentenceAligner(model='xlm-roberta-base', token_type='bpe', matching_methods='a')
         self.synthesizer = SpeechSynthesizer(self.config)
         self.text_processor = TextProcessing(self.config)
-        self.translator = Translator(self.config.source_lang, self.config.target_lang)
+        self.translator = Translator(self)
 
         try:
             self.load_structures()
@@ -32,8 +32,12 @@ class DependencyContainer:
     def get(self, dependency_name: str) -> object:
         return getattr(self, dependency_name)
 
-    def save_structures(self, filename: str = 'lemmas.pkl') -> None:
-        '''Save LemmaDict and LemmaTrie structures to file for future reuse. Also save previous version.'''
+    def save_structures(self) -> None:
+        '''Save LemmaDict and LemmaTrie structures to file for future reuse. Keep previous version if exists.'''
+        if not self.config.save_results:
+            return
+
+        filename = f'{self.config.output_storage_filename}.pkl'
         if os.path.exists(filename):
             old_filename = f'{filename}.old'
             if os.path.exists(old_filename):
@@ -42,9 +46,9 @@ class DependencyContainer:
         with open(filename, 'wb') as file:
             pickle.dump((self.lemma_dict, self.lemma_trie), file)
 
-    def load_structures(self, filename: str = 'lemmas.pkl') -> None:
+    def load_structures(self) -> None:
         '''Load LemmaDict and LemmaTrie from a file.'''
-        with open(filename, 'rb') as file:
+        with open(f'{self.config.input_storage_filename}.pkl', 'rb') as file:
             self.lemma_dict, self.lemma_trie = pickle.load(file)
 
 
@@ -63,6 +67,8 @@ class Main:
     def process(self, text: str) -> None:
         '''Main app cycle.'''
         sentences = self.container.text_processor.get_sentences(text)
+        # it may be changed after the sentence alignment with the literary translation
+        sentences = self.container.translator.process_sentences(sentences, self.container.config.use_translation_file)
         for sentence_text in sentences:
             sentence_obj = Sentence(sentence_text, self.entity_counter, self.container)
             sentence_obj.process_audio()

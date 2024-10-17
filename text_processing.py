@@ -24,17 +24,18 @@ class TextProcessing:
         for param in self.embedding_model.parameters():
             param.requires_grad = False
 
-    def get_sentences(self, text: str) -> list[str]:
-        return [sentence.text for sentence in self.nlp_src(text).sents]
+    def get_sentences(self, text: str, is_source: bool = True) -> list[str]:
+        model = self.nlp_src if is_source else self.nlp_trg
+        return [sentence.text for sentence in model(text).sents]
 
     def get_tokens(self, sentence: str, is_source: bool) -> Doc:
         return self.nlp_src(sentence) if is_source else self.nlp_trg(sentence)
 
     def get_merged_tokens(self, sentence: str, lang: str) -> list[Token]:
-        return self._merge_tokens(self.get_tokens(sentence, lang == self.source_lang))
+        return self._merge_tokens(self.get_tokens(sentence, lang == self.source_lang), sentence)
 
     @staticmethod
-    def _merge_tokens(doc: Doc) -> list[Token]:
+    def _merge_tokens(doc: Doc, original_text: str) -> list[Token]:
         '''Union problematic [eng] spacy tokens for simplier synchronization with Bert tokens.'''
         spans_to_merge = []
         i = 0
@@ -43,13 +44,14 @@ class TextProcessing:
             if ('\'' in token.text or '’' in token.text) and i > 0:
                 spans_to_merge.append(doc[i - 1 : i + 1])
             elif token.text == '-' and 0 < i < len(doc) - 1:
-                start = i - 1
-                end = i + 2
-                while end < len(doc) and doc[end].text == '-':
-                    end += 2
-                spans_to_merge.append(doc[start:end])
-                logging.debug(f'Adding span to merge (complex hyphenated chain): {doc[start:end]}')
-                i = end - 1
+                if original_text[token.idx - 1].isalpha() and original_text[token.idx + 1].isalpha():
+                    start = i - 1
+                    end = i + 2
+                    while end < len(doc) and doc[end].text == '-' and original_text[doc[end].idx + 1].isalpha():
+                        end += 2
+                    spans_to_merge.append(doc[start:end])
+                    logging.debug(f'Adding span to merge (complex hyphenated chain): {doc[start:end]}')
+                    i = end - 1
             i += 1
         filtered_spans = spacy.util.filter_spans(spans_to_merge)
         with doc.retokenize() as retokenizer:
