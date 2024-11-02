@@ -12,6 +12,12 @@ class Translator:
         self.target_lang = container.config.target_lang
         self.text_processor = container.text_processor
 
+        installed_languages = {x.code for x in argostranslate.translate.get_installed_languages()}
+        if self.source_lang in installed_languages and self.target_lang in installed_languages:
+            logging.debug('Languages for the translator are already installed.')
+            return
+
+        logging.debug('Languages for the translator are not found. Let\'s install them.')
         argostranslate.package.update_package_index()
         available = argostranslate.package.get_available_packages()
         package_to_install = next(
@@ -30,18 +36,11 @@ class Translator:
             result_src, result_trg = self.get_from_file(original_sentences)
             self.translated = {hash(src): trg for src, trg in zip(result_src, result_trg)}
             return result_src
-        self.translated = {hash(src): self.translate(src) for src in original_sentences}
+        self.translated = {hash(src): self.translate(src).rstrip() for src in original_sentences}
         return original_sentences
 
     def get_translated_sentence(self, sentence: str) -> str:
         return self.translated[hash(sentence)]
-
-    def get_sentence_similarity_score(self, sentence_src: str, sentence_trg: str) -> float:
-        '''Simple similarity scoring based on percent of inner-aligned words.'''
-        alignment = self.aligner.get_word_aligns(sentence_src, sentence_trg)
-        aligned_words_count = len(alignment['inter'])
-        total_words = max(len(sentence_src.split()), len(sentence_trg.split()))
-        return aligned_words_count / total_words
 
     def get_from_file(self, original_sentences: list[str]) -> tuple[list[str], list[str]]:
         '''Use existing translation from file as parallel text.'''
@@ -73,3 +72,10 @@ class Translator:
         if i == s and j == t:
             result.append((original_sentences[i], translated_sentences[j]))
         return zip(*result)
+
+    def get_sentence_similarity_score(self, sentence_src: str, sentence_trg: str) -> float:
+        '''Simple similarity scoring based on percent of inner-aligned words.'''
+        alignment = self.aligner.get_word_aligns(sentence_src, sentence_trg)
+        aligned_words_count = len(alignment['inter'])
+        total_words = max(len(sentence_src.split()), len(sentence_trg.split()))
+        return aligned_words_count / total_words

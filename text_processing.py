@@ -12,10 +12,9 @@ class TextProcessing:
 
         self.nlp_src = spacy.load(config.source_model)
         self.nlp_trg = spacy.load(config.target_model)
-        self.nlp_src.add_pipe('sentencizer', before='parser')
-        self.nlp_src.get_pipe('sentencizer').punct_chars.update((';', '\n'))
-        self.nlp_trg.add_pipe('sentencizer', before='parser')
-        self.nlp_trg.get_pipe('sentencizer').punct_chars.update((';', '\n'))
+        for nlp in (self.nlp_src, self.nlp_trg):
+            nlp.add_pipe('sentencizer', before='parser')
+            nlp.get_pipe('sentencizer').punct_chars.update((';', '\n', '\n\n', '\n\n\n'))
 
         embedding_model_name = 'bert-base-multilingual-cased'
         self.embedding_tokenizer = AutoTokenizer.from_pretrained(embedding_model_name)
@@ -36,18 +35,25 @@ class TextProcessing:
 
     @staticmethod
     def _merge_tokens(doc: Doc, original_text: str) -> list[Token]:
-        '''Union problematic [eng] spacy tokens for simplier synchronization with Bert tokens.'''
+        '''Union problematic [eng] spacy tokens for simplier synchronization with Bert tokens.
+
+        Our goal is to make the spacy tokens larger than the Bert tokens,
+            so that we can then fit the latter to their lengths with combined embeddings.
+        '''
         spans_to_merge = []
         i = 0
-        while i < len(doc):
+        n = len(doc)
+        while i < n:
             token = doc[i]
             if ('\'' in token.text or '’' in token.text) and i > 0:
                 spans_to_merge.append(doc[i - 1 : i + 1])
-            elif token.text == '-' and 0 < i < len(doc) - 1:
+            elif i < n - 1 and (token.text == 'can' and doc[i + 1].text == 'not' or token.is_punct and doc[i+1].is_punct):
+                spans_to_merge.append(doc[i : i + 2])
+            elif token.text == '-' and 0 < i < n - 1:
                 if original_text[token.idx - 1].isalpha() and original_text[token.idx + 1].isalpha():
                     start = i - 1
                     end = i + 2
-                    while end < len(doc) and doc[end].text == '-' and original_text[doc[end].idx + 1].isalpha():
+                    while end < n and doc[end].text == '-' and original_text[doc[end].idx + 1].isalpha():
                         end += 2
                     spans_to_merge.append(doc[start:end])
                     logging.debug(f'Adding span to merge (complex hyphenated chain): {doc[start:end]}')

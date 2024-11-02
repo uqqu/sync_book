@@ -1,0 +1,35 @@
+  <p>
+    <s>
+      {% if sentence_speed != 1 %}
+        <prosody rate="{{ (sentence_speed * 100) | int }}%">{{ sentence }}</prosody>
+      {% else %}
+        {{ sentence }}
+      {% endif %}
+    </s>
+    {% if result %}
+      <break strength="strong"/>
+      <s>
+        <emphasis level="moderate">
+          <prosody {% if vocabulary_speed != 1 %}rate="{{ (vocabulary_speed * 100) | int }}%" {% endif %}pitch="+10%" volume="-5dB">
+            {% for src, trg in result %}
+              {{ src }}-<voice name="{{ voice_trg }}">{{ trg }}</voice>
+              {% if not loop.last %}<break strength="medium"/>{% endif %}
+            {% endfor %}
+          </prosody>
+        </emphasis>
+      </s>
+    {% endif %}
+    {% if translated_sentence %}
+      <break strength="strong"/>
+      <s>
+        <voice name="{{ voice_trg }}">
+          {% if sentence_speed != 1 %}
+            <prosody rate="{{ (sentence_speed * 100) | int }}%">{{ translated_sentence }}</prosody>
+          {% else %}
+            {{ translated_sentence }}
+          {% endif %}
+        </voice>
+      </s>
+    {% endif %}
+  </p>
+  <break strength="x-strong"/>

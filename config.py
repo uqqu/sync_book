@@ -14,7 +14,6 @@ class Config:
         self.target_lang = 'ru'
         self.source_full_lang = 'english'
         self.target_full_lang = 'russian'
-        self.lang_delimiter = ''  # '\u200B'
 
         self.min_align_weight = 0.7
         self.lemma_intervals = tuple(b - a for a, b in pairwise(int(1.05**i) for i in range(190, 600)))
@@ -27,9 +26,22 @@ class Config:
 
         self.input_storage_filename = 'lemmas'
         self.output_storage_filename = 'lemmas'
-        self.save_results = True
+        self.save_results = False
+        self.use_translation_file = False
+
         self.speech_synth = True
-        self.use_translation_file = True
+        self.speech_config = SpeechConfig()
+
+
+class SpeechConfig:
+    def __init__(self):
+        self.provider = 'CoquiTTS'  # gTTS, CoquiTTS, OpenTTS, GoogleCloud
+        self.model = 'tts_models/multilingual/multi-dataset/xtts_v2'
+        self.voice_src = 'Tammie Ema'  # Tammie Ema, en-US-Wavenet-C
+        self.voice_trg = 'ru-RU-Wavenet-C'
+        self.ssml = False
+        self.sentence_speed = 0.9
+        self.vocabulary_speed = 0.7
 
         # synthesis with post audio alignment to reuse words for the dictionary from generated sentence
         self.mfa_use = False  # extremely long and jerkily :x
