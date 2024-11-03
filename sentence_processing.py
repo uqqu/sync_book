@@ -130,7 +130,7 @@ class Sentence:
         return n > 6 or 2 < n > third
 
     def get_results(self) -> list[tuple[int, str | list[tuple[str, str]]]]:
-        '''Return combined text: original sentence, resulting tokens and translated sentence if needed.'''
+        '''Return original and translated (if needed) sentences [0, 1], vocabulary tokens[2] and whitespace tail[3].'''
         stripped = self.sentence.rstrip()
         tail = self.sentence[len(stripped) :]
         result = [(0, stripped)]

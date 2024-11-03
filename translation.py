@@ -3,26 +3,23 @@ from functools import cache
 
 import argostranslate.package
 import argostranslate.translate
+from google.cloud import translate_v2
 
 
-class Translator:
-    def __init__(self, container: 'DependencyContainer') -> None:
-        self.aligner = container.aligner
-        self.source_lang = container.config.source_lang
-        self.target_lang = container.config.target_lang
-        self.text_processor = container.text_processor
+class ArgosTranslateProvider:
+    def __init__(self, source_lang: str, target_lang: str) -> None:
+        self.source_lang = source_lang
+        self.target_lang = target_lang
 
         installed_languages = {x.code for x in argostranslate.translate.get_installed_languages()}
-        if self.source_lang in installed_languages and self.target_lang in installed_languages:
+        if source_lang in installed_languages and target_lang in installed_languages:
             logging.debug('Languages for the translator are already installed.')
             return
 
         logging.debug('Languages for the translator are not found. Let\'s install them.')
         argostranslate.package.update_package_index()
         available = argostranslate.package.get_available_packages()
-        package_to_install = next(
-            filter(lambda x: x.from_code == self.source_lang and x.to_code == self.target_lang, available)
-        )
+        package_to_install = next(filter(lambda x: x.from_code == source_lang and x.to_code == target_lang, available))
         argostranslate.package.install_from_path(package_to_install.download())
 
     @cache
@@ -30,13 +27,40 @@ class Translator:
         '''Generate new third-party translation.'''
         return argostranslate.translate.translate(text, self.source_lang, self.target_lang)
 
+
+class GCTranslationProvider:
+    def __init__(self, source_lang: str, target_lang: str) -> None:
+        self.client = translate_v2.Client()
+        self.source_lang = source_lang
+        self.target_lang = target_lang
+
+    @cache
+    def translate(self, text: str) -> str:
+        response = self.client.translate(text, source_language=self.source_lang, target_language=self.target_lang)
+        return response['translatedText']
+
+
+class Translator:
+    def __init__(self, container: 'DependencyContainer') -> None:
+        self.aligner = container.aligner
+        self.text_processor = container.text_processor
+        match container.config.translation_provider:
+            case 'GoogleCloud':
+                provider = GCTranslationProvider
+            case 'Argos':
+                provider = ArgosTranslateProvider
+        self.provider = provider(container.config.source_lang, container.config.target_lang)
+
+    def translate(self, text: str) -> str:
+        return self.provider.translate(text)
+
     def process_sentences(self, original_sentences: list[str], use_translation_file: bool) -> list[str]:
         '''Process all sentences according to current config rules.'''
         if use_translation_file:
             result_src, result_trg = self.get_from_file(original_sentences)
             self.translated = {hash(src): trg for src, trg in zip(result_src, result_trg)}
             return result_src
-        self.translated = {hash(src): self.translate(src).rstrip() for src in original_sentences}
+        self.translated = {hash(src): self.translate(src.rstrip()) for src in original_sentences}
         return original_sentences
 
     def get_translated_sentence(self, sentence: str) -> str:

@@ -28,6 +28,7 @@ class Config:
         self.output_storage_filename = 'lemmas'
         self.save_results = False
         self.use_translation_file = False
+        self.translation_provider = 'GoogleCloud'  # GoogleCloud, Argos
 
         self.speech_synth = True
         self.speech_config = SpeechConfig()

@@ -25,7 +25,7 @@ def adjust_audio_speed(func):
     return wrapper
 
 
-class gTTSProvider:
+class GTTSProvider:
     '''Simple non-local synthesizer w/o variable parameters.'''
 
     def __init__(self, _) -> None:
@@ -67,7 +67,7 @@ class CoquiTTSProvider:
         return AudioSegment.from_wav(audio_buffer)
 
 
-class GoogleCloudProvider:
+class GoogleCloudTTSProvider:
     '''Fast cloud speech synthesizer with SSML support.
 
     Available voices: https://cloud.google.com/text-to-speech/docs/voices
@@ -116,9 +116,9 @@ class SpeechSynthesizer:
             case 'CoquiTTS':
                 provider = CoquiTTSProvider
             case 'gTTS':
-                provider = gTTSProvider
+                provider = GTTSProvider
             case 'GoogleCloud':
-                provider = GoogleCloudProvider
+                provider = GoogleCloudTTSProvider
             case _:
                 raise ValueError(f'Unknown speech_synth_provider value ({config.speech_config.provider}).')
         self.model = provider(config.speech_config)
