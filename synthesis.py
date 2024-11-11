@@ -8,6 +8,8 @@ from gtts import gTTS
 from pydub import AudioSegment
 from TTS.api import TTS
 
+import config
+
 
 def adjust_audio_speed(func):
     '''For the most providers this is the only way to adjust speech rate.'''
@@ -28,7 +30,7 @@ def adjust_audio_speed(func):
 class GTTSProvider:
     '''Simple non-local synthesizer w/o variable parameters.'''
 
-    def __init__(self, _) -> None:
+    def __init__(self) -> None:
         self.model = gTTS
 
     @adjust_audio_speed
@@ -37,13 +39,13 @@ class GTTSProvider:
         tts = self.model(text=text, lang=lang)
         tts.write_to_fp(audio_buffer)
         audio_buffer.seek(0)
-        return AudioSegment.from_wav(audio_buffer)
+        return AudioSegment.from_mp3(audio_buffer)
 
 
 class CoquiTTSProvider:
     '''Local customizable synthesizer with many models support (use multilingual only).
 
-    Require speech_config values: model, voice_src. Speed optionally (outer regulation).
+    Require config values: voice_model, voice_src. Speed optionally (outer regulation).
     SSML is not officially supported.
 
     Available models: > tts --list_models
@@ -55,9 +57,9 @@ class CoquiTTSProvider:
         [en, es, fr, de, it, pt, pl, tr, ru, nl, cs, ar, zh-cn, hu, ko, ja, hi]
     '''
 
-    def __init__(self, speech_config: 'SpeechConfig') -> None:
-        self.model = TTS(model_name=speech_config.model)
-        self.voice = speech_config.voice_src
+    def __init__(self) -> None:
+        self.model = TTS(model_name=config.synth_model)
+        self.voice = config.voice_src
 
     @adjust_audio_speed
     def synthesize(self, text: str, lang: str) -> AudioSegment:
@@ -70,34 +72,29 @@ class CoquiTTSProvider:
 class GoogleCloudTTSProvider:
     '''Fast cloud speech synthesizer with SSML support.
 
+    Require config values: voice_src, voice_trg. Speed optionally (inner regulation).
+
     Available voices: https://cloud.google.com/text-to-speech/docs/voices
     Check src and trg voice types compatibility: https://cloud.google.com/text-to-speech/docs/ssml#select_a_voice
 
     Save path to your .json credentials to the environment variable 'GOOGLE_APPLICATION_CREDENTIALS'.
     GC.TTS has a quotas for free monthly use.
-
-    Require speech_config values by keys: voice_src, voice_trg. Speed optionally (inner regulation).
     '''
 
-    def __init__(self, speech_config: 'SpeechConfig') -> None:
-        self.speech_config = speech_config
+    def __init__(self) -> None:
         self.model = texttospeech.TextToSpeechClient()
 
     def synthesize(self, text: str, lang: str, speed: float) -> AudioSegment:
-        if self.speech_config.ssml:
+        if config.use_ssml:
             input_text = texttospeech.SynthesisInput(ssml=text)
             audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
-            voice_name = self.speech_config.voice_src
+            voice_name = config.voice_src
         else:
             input_text = texttospeech.SynthesisInput(text=text)
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.LINEAR16, speaking_rate=speed
             )
-            voice_name = (
-                self.speech_config.voice_src
-                if lang == self.speech_config.voice_src[:2]
-                else self.speech_config.voice_trg
-            )
+            voice_name = config.voice_src if lang == config.voice_src[:2] else config.voice_trg
         lang = voice_name[:5]
         voice = texttospeech.VoiceSelectionParams(language_code=lang)
         response = self.model.synthesize_speech(input=input_text, voice=voice, audio_config=audio_config)
@@ -108,23 +105,21 @@ class GoogleCloudTTSProvider:
 
 
 class SpeechSynthesizer:
-    def __init__(self, config: 'Config') -> None:
+    def __init__(self) -> None:
         if not config.speech_synth:
             return
-        self.config = config
-        match config.speech_config.provider:
+        match config.synth_provider:
             case 'CoquiTTS':
-                provider = CoquiTTSProvider
+                self.model = CoquiTTSProvider()
             case 'gTTS':
-                provider = GTTSProvider
+                self.model = GTTSProvider()
             case 'GoogleCloud':
-                provider = GoogleCloudTTSProvider
+                self.model = GoogleCloudTTSProvider()
             case _:
-                raise ValueError(f'Unknown speech_synth_provider value ({config.speech_config.provider}).')
-        self.model = provider(config.speech_config)
+                raise ValueError(f'Unknown synth_provider value ({config.synth_provider}).')
 
     def synthesize(self, text: str, lang: str, speed: float = 1.0) -> AudioSegment:
-        if text and not self.config.speech_config.ssml:
+        if text and not config.use_ssml:
             text = re.sub(r'^\P{L}+|[\P{L}?!\.]+$', '', text)
         if not text:
             return False
@@ -139,12 +134,12 @@ class SpeechSynthesizer:
         for flag, value in parts:
             match flag:
                 case 0:
-                    audio = self.synthesize(value, self.config.source_lang, speed)
+                    audio = self.synthesize(value, config.source_lang, speed)
                 case 1:
-                    audio = self.synthesize(value, self.config.target_lang, speed)
+                    audio = self.synthesize(value, config.target_lang, speed)
                 case 2:
                     audio = self.synthesize_by_parts(
-                        [(i, v) for val in value for i, v in enumerate(val)], self.config.speech_config.vocabulary_speed
+                        [(i, v) for val in value for i, v in enumerate(val)], config.vocabulary_pronunciation_speed
                     )
                 case _:
                     continue

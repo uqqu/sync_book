@@ -3,6 +3,7 @@
 import regex as re
 from jinja2 import Template
 
+import config
 from _structures import Entity
 from alignment import TokenAligner
 from mfa_aligner import MFAligner
@@ -12,14 +13,11 @@ class Sentence:
     def __init__(self, sentence: str, entity_counter: int, container: 'DependencyContainer') -> None:
         self.sentence = sentence
         self.container = container
-        self.config = container.config
         self.translated_sentence = self.container.translator.get_translated_sentence(sentence)
         self.entity_counter = entity_counter
 
-        self.tokens_src = container.text_processor.get_merged_tokens(self.sentence, lang=self.config.source_lang)
-        self.tokens_trg = container.text_processor.get_merged_tokens(
-            self.translated_sentence, lang=self.config.target_lang
-        )
+        self.tokens_src = container.text_processor.get_merged_tokens(self.sentence, lang=config.source_lang)
+        self.tokens_trg = container.text_processor.get_merged_tokens(self.translated_sentence, lang=config.target_lang)
         logging.info(f'{self.tokens_src=}, {self.tokens_trg=}')
         container.text_processor.add_tokens_embeddings(self.sentence, self.tokens_src)
         container.text_processor.add_tokens_embeddings(self.translated_sentence, self.tokens_trg)
@@ -41,20 +39,20 @@ class Sentence:
             logging.debug(f'Processing token: {token_src}')
             if token_src in self.skip:  # skip token if it has already been processed
                 logging.debug('Skipping previously processed token')
-            elif not re.match(self.config.word_pattern, token_src.text):  # skip punct w/o counting
+            elif not re.match(config.word_pattern, token_src.text):  # skip punct w/o counting
                 self.entity_counter -= 1
                 logging.debug('Skipping punctuation')
-            elif token_src.ent_type_ in self.config.untranslatable_entities:
+            elif token_src.ent_type_ in config.untranslatable_entities:
                 logging.debug(f'Skipping untranslatable entity: {token_src.ent_type_}')
             elif self.trie_search_and_process(idx_src):  # check multiword origin chain
                 logging.debug('Found multiword chain')
             elif self._is_start_of_named_entity(idx_src):  # treat named entity chain and add tokens to 'skip'
                 self.add_named_entity_to_trie(idx_src)
-            elif token_src.text.lower() in self.config.stop_words:  # only after multiword check
+            elif token_src.text.lower() in config.stop_words:  # only after multiword check
                 logging.debug('Skipping stopword')
             else:
                 score, seq_tokens_src, seq_tokens_trg = self.aligner.process_alignment(idx_src)
-                if score < self.config.min_align_weight:
+                if score < config.min_align_weight:
                     logging.debug(f'Rejected after alignment: {score}, {seq_tokens_src}, {seq_tokens_trg}')
                     continue
                 if len(seq_tokens_src) == 1:
@@ -143,15 +141,16 @@ class Sentence:
         return result
 
     def get_rendered_ssml(self) -> str:
-        if not self.config.speech_config.ssml:
+        '''Return rendered ssml output for synthesis with provider that supports ssml.'''
+        if not config.use_ssml:
             return ''
         return self.template.render(
             sentence=self.sentence.rstrip(),
             translated_sentence=self.translated_sentence.rstrip(),
             result=self.result,
-            voice_trg=self.config.speech_config.voice_trg,
-            sentence_speed=self.config.speech_config.sentence_speed,
-            vocabulary_speed=self.config.speech_config.vocabulary_speed,
+            voice_trg=config.voice_trg,
+            sentence_speed=config.sentence_pronunciation_speed,
+            vocabulary_speed=config.vocabulary_pronunciation_speed,
         )
 
     def get_result_mfa_audio(self) -> 'AudioSegment':

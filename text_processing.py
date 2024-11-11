@@ -5,9 +5,11 @@ import torch
 from spacy.tokens import Doc, Token
 from transformers import AutoModel, AutoTokenizer
 
+import config
+
 
 class TextProcessing:
-    def __init__(self, config: 'Config') -> None:
+    def __init__(self) -> None:
         self.source_lang = config.source_lang
 
         self.nlp_src = spacy.load(config.source_model)
@@ -47,7 +49,9 @@ class TextProcessing:
             token = doc[i]
             if ('\'' in token.text or '’' in token.text) and i > 0:
                 spans_to_merge.append(doc[i - 1 : i + 1])
-            elif i < n - 1 and (token.text == 'can' and doc[i + 1].text == 'not' or token.is_punct and doc[i+1].is_punct):
+            elif i < n - 1 and (
+                token.text == 'can' and doc[i + 1].text == 'not' or token.is_punct and doc[i + 1].is_punct
+            ):
                 spans_to_merge.append(doc[i : i + 2])
             elif token.text == '-' and 0 < i < n - 1:
                 if original_text[token.idx - 1].isalpha() and original_text[token.idx + 1].isalpha():

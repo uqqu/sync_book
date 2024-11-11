@@ -1,9 +1,13 @@
+import hashlib
 import logging
+import pickle
 from functools import cache
 
 import argostranslate.package
 import argostranslate.translate
 from google.cloud import translate_v2
+
+import config
 
 
 class ArgosTranslateProvider:
@@ -44,29 +48,43 @@ class Translator:
     def __init__(self, container: 'DependencyContainer') -> None:
         self.aligner = container.aligner
         self.text_processor = container.text_processor
-        match container.config.translation_provider:
+        match config.translation_provider:
             case 'GoogleCloud':
                 provider = GCTranslationProvider
             case 'Argos':
                 provider = ArgosTranslateProvider
-        self.provider = provider(container.config.source_lang, container.config.target_lang)
+        self.provider = provider(config.source_lang, config.target_lang)
 
     def translate(self, text: str) -> str:
         return self.provider.translate(text)
 
-    def process_sentences(self, original_sentences: list[str], use_translation_file: bool) -> list[str]:
+    @staticmethod
+    def _get_stable_hash(text: str) -> str:
+        '''Helper for getting stable hash for the same sentences between sessions.'''
+        return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+    def process_sentences(self, original_sentences: list[str], use_translation_file: int) -> list[str]:
         '''Process all sentences according to current config rules.'''
-        if use_translation_file:
-            result_src, result_trg = self.get_from_file(original_sentences)
-            self.translated = {hash(src): trg for src, trg in zip(result_src, result_trg)}
+        if use_translation_file == 1:
+            result_src, result_trg = self.get_literary_translation_from_file(original_sentences)
+            self.translated = {self._get_stable_hash(src): trg for src, trg in zip(result_src, result_trg)}
             return result_src
-        self.translated = {hash(src): self.translate(src.rstrip()) for src in original_sentences}
+        if use_translation_file == 2:
+            with open('translation.pkl', 'rb') as file:
+                self.translated = pickle.load(file)
+            return original_sentences
+        self.translated = {self._get_stable_hash(src): self.translate(src.rstrip()) for src in original_sentences}
         return original_sentences
 
-    def get_translated_sentence(self, sentence: str) -> str:
-        return self.translated[hash(sentence)]
+    def save_translation_to_file(self) -> None:
+        '''Save translation in order to reduce the number of requests to external translators.'''
+        with open('translation.pkl', 'wb') as file:
+            pickle.dump(self.translated, file)
 
-    def get_from_file(self, original_sentences: list[str]) -> tuple[list[str], list[str]]:
+    def get_translated_sentence(self, sentence: str) -> str:
+        return self.translated[self._get_stable_hash(sentence)]
+
+    def get_literary_translation_from_file(self, original_sentences: list[str]) -> tuple[list[str], list[str]]:
         '''Use existing translation from file as parallel text.'''
         with open('translation.txt', 'r') as file:
             text = file.read()

@@ -5,8 +5,8 @@ import pickle
 from simalign import SentenceAligner
 from spacy.tokens import Token
 
+import config
 from _structures import LemmaDict, LemmaTrie
-from config import Config
 from sentence_processing import Sentence
 from synthesis import SpeechSynthesizer
 from text_processing import TextProcessing
@@ -16,11 +16,10 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 
 
 class DependencyContainer:
-    def __init__(self):
-        self.config = Config()
+    def __init__(self) -> None:
         self.aligner = SentenceAligner(model='xlm-roberta-base', token_type='bpe', matching_methods='a')
-        self.synthesizer = SpeechSynthesizer(self.config)
-        self.text_processor = TextProcessing(self.config)
+        self.synthesizer = SpeechSynthesizer()
+        self.text_processor = TextProcessing()
         self.translator = Translator(self)
 
         try:
@@ -31,10 +30,10 @@ class DependencyContainer:
 
     def save_structures(self) -> None:
         '''Save LemmaDict and LemmaTrie structures to file for future reuse. Keep previous version if exists.'''
-        if not self.config.save_results:
+        if not config.save_results:
             return
 
-        filename = f'{self.config.output_storage_filename}.pkl'
+        filename = f'{config.output_storage_filename}.pkl'
         if os.path.exists(filename):
             old_filename = f'{filename}.old'
             if os.path.exists(old_filename):
@@ -45,7 +44,7 @@ class DependencyContainer:
 
     def load_structures(self) -> None:
         '''Load LemmaDict and LemmaTrie from a previously saved file.'''
-        with open(f'{self.config.input_storage_filename}.pkl', 'rb') as file:
+        with open(f'{config.input_storage_filename}.pkl', 'rb') as file:
             self.lemma_dict, self.lemma_trie = pickle.load(file)
 
 
@@ -60,7 +59,7 @@ class Main:
         if not Token.has_extension('embedding'):
             Token.set_extension('embedding', default=None)
 
-        if self.container.config.speech_synth and self.container.config.speech_config.mfa_use:
+        if config.speech_synth and config.use_mfa:
             self.output_audio: 'AudioSegment' = self.container.synthesizer.silent(0)
             if not Token.has_extension('audio'):
                 Token.set_extension('audio', default=self.container.synthesizer.silent(200))
@@ -69,7 +68,9 @@ class Main:
         '''Main app cycle.'''
         sentences = self.container.text_processor.get_sentences(text)
         # it may be changed after the sentence alignment with the literary translation
-        sentences = self.container.translator.process_sentences(sentences, self.container.config.use_translation_file)
+        sentences = self.container.translator.process_sentences(sentences, config.use_translation_file)
+        if config.save_translation_to_file:
+            self.container.translator.save_translation_to_file()
         for sentence_text in sentences:
             sentence_obj = Sentence(sentence_text, self.entity_counter, self.container)
             sentence_obj.process_tokens()
@@ -77,18 +78,18 @@ class Main:
             self.sentence_counter += 1
             self.output_ssml.append(sentence_obj.get_rendered_ssml())
             self.output_text.extend(sentence_obj.get_results())
-            if self.container.config.speech_synth and self.container.config.speech_config.mfa_use:
+            if config.speech_synth and config.use_mfa:
                 self.output_audio += sentence_obj.get_result_mfa_audio()
 
         self.output_ssml.append('</speak>')
 
-        if self.container.config.speech_synth:
-            if not self.container.config.speech_config.mfa_use:
-                if self.container.config.speech_config.ssml:
+        if config.speech_synth:
+            if not config.use_mfa:
+                if config.use_ssml:
                     self.output_audio = self.container.synthesizer.synthesize(''.join(self.output_ssml), '', 1)
                 else:
                     self.output_audio = self.container.synthesizer.synthesize_by_parts(
-                        self.output_text, self.container.config.speech_config.sentence_speed
+                        self.output_text, config.sentence_pronunciation_speed
                     )
             self.container.synthesizer.save_audio(self.output_audio, 'multilingual_output')
         self.container.save_structures()

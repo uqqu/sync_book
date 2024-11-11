@@ -4,30 +4,31 @@ import subprocess
 
 import tgt
 
+import config
+
 
 class MFAligner:
     def __init__(self, parent: 'Sentence') -> None:
-        if not parent.config.speech_synth or not parent.config.speech_config.mfa_use:
+        if not config.speech_synth or not config.use_mfa:
             self.idle = True
             return
         self.idle = False
         self.parent = parent
         self.synth = parent.container.synthesizer
-        self.config = parent.container.config
-        speed = self.config.speech_config.sentence_speed
-        self.sentence_audio = self.synth.synthesize(self.parent.sentence, self.config.source_lang, speed)
-        self.translated_audio = self.synth.synthesize(self.parent.translated_sentence, self.config.target_lang, speed)
+        speed = config.sentence_pronunciation_speed
+        self.sentence_audio = self.synth.synthesize(self.parent.sentence, config.source_lang, speed)
+        self.translated_audio = self.synth.synthesize(self.parent.translated_sentence, config.target_lang, speed)
         self.output_audio = self.sentence_audio[:]
         self._process_mfa_alignment()
 
     def _process_mfa_alignment(self) -> None:
         '''Recognize and set word fragments to token attributes for future addition to audio output.'''
         alignment_src = self._align_audio(
-            self.parent.sentence, self.sentence_audio, self.config.source_full_lang, 'temp/temp'
+            self.parent.sentence, self.sentence_audio, config.source_full_lang, 'temp/temp'
         )
         segments_src = self._split_audio_by_alignment(self.sentence_audio, alignment_src)
         alignment_trg = self._align_audio(
-            self.parent.translated_sentence, self.translated_audio, self.config.target_full_lang, 'temp/temp'
+            self.parent.translated_sentence, self.translated_audio, config.target_full_lang, 'temp/temp'
         )
         segments_trg = self._split_audio_by_alignment(self.translated_audio, alignment_trg)
         for segments, tokens in ((segments_src, self.parent.tokens_src), (segments_trg, self.parent.tokens_trg)):
@@ -50,22 +51,17 @@ class MFAligner:
             for token in result_trg:
                 self.output_audio += token._.audio
         else:
-            translation_audio = self.synth.synthesize(result_trg, self.config.target_lang)
+            translation_audio = self.synth.synthesize(result_trg, config.target_lang)
             self.output_audio += translation_audio
 
     def _align_audio(self, text: str, audio_buffer: 'AudioSegment', lang: str, output_pathfile: str) -> str:
         '''Align provided audio buffer with the given text using MFA.'''
         os.makedirs('temp', exist_ok=True)
-        # output = BytesIO()
-        # audio_buffer.export(output, format='wav')
-        # output.seek(0)
-        # with open('temp/temp.wav', 'wb') as f:
-        #     f.write(output.getbuffer())
         audio_buffer.export('temp/temp.wav', format='wav')
         with open('temp/temp.txt', 'w', encoding='utf-8') as f:
             f.write(text)
-        dict_path = f'{self.config.speech_config.mfa_dir}dictionary//{lang}_mfa.dict'
-        model_path = f'{self.config.speech_config.mfa_dir}acoustic//{lang}_mfa.zip'
+        dict_path = f'{config.mfa_dir}dictionary//{lang}_mfa.dict'
+        model_path = f'{config.mfa_dir}acoustic//{lang}_mfa.zip'
         command = ['mfa', 'align', '--clean', '--single_speaker', 'temp', dict_path, model_path, './temp/']
         subprocess.run(command, check=True)
         return f'{output_pathfile}.TextGrid'
@@ -78,8 +74,8 @@ class MFAligner:
         word_tier = textgrid.get_tier_by_name('words')
         for interval in word_tier.intervals:
             if interval.text.strip():
-                start_time = max(0, interval.start_time * 1000 - self.config.speech_config.mfa_start_shift)
-                end_time = min(len(audio), interval.end_time * 1000 + self.config.speech_config.mfa_end_shift)
+                start_time = max(0, interval.start_time * 1000 - config.mfa_start_shift_ms)
+                end_time = min(len(audio), interval.end_time * 1000 + config.mfa_end_shift_ms)
                 segments.append({'text': interval.text, 'audio': audio[start_time:end_time]})
 
         return segments

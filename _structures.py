@@ -1,6 +1,6 @@
 import regex as re
 
-from config import Config
+import config
 
 
 class BaseNode:
@@ -26,10 +26,8 @@ class BaseNode:
 class Entity(BaseNode):
     '''Leaf for LemmaDict and LemmaTrie that stores translation and it repeat distance.'''
 
-    intervals = Config().entity_intervals
-
     def __init__(self, translation: str) -> None:
-        super().__init__(Entity.intervals)
+        super().__init__(config.entity_intervals)
         self.translation = translation
 
 
@@ -42,10 +40,8 @@ class LemmaDict(BaseNode):
     As BaseNode successor it can be checked by repeat distance.
     '''
 
-    intervals = Config().lemma_intervals
-
     def __init__(self) -> None:
-        super().__init__(LemmaDict.intervals)
+        super().__init__(config.lemma_intervals)
         self.children: dict[str, LemmaDict | Entity] = {}
 
     def add(self, lemma_src: str, text_src: str, lemma_trg: str, text_trg: str) -> tuple['LemmaDict', Entity]:
@@ -69,8 +65,6 @@ class LemmaTrie:
     Leaf 'Entity' used only to store translation (always) and repeat distance.
     '''
 
-    word_pattern = Config().word_pattern
-
     def __init__(self) -> None:
         self.children: dict[str, LemmaTrie | Entity] = {}
 
@@ -82,7 +76,7 @@ class LemmaTrie:
         if not tokens:
             return None, 0
         token = tokens.pop(0)
-        if not re.match(LemmaTrie.word_pattern, token.text):
+        if not re.match(config.word_pattern, token.text):
             return self.search(tokens, depth + 1, punct_tail + 1)
         if child := self.children.get(token.lemma_):
             child = child.search(tokens, depth + 1)
