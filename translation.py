@@ -6,6 +6,7 @@ from functools import cache
 import argostranslate.package
 import argostranslate.translate
 from google.cloud import translate_v2
+from sentence_transformers import SentenceTransformer
 
 import config
 
@@ -54,6 +55,8 @@ class Translator:
             case 'Argos':
                 provider = ArgosTranslateProvider
         self.provider = provider(config.source_lang, config.target_lang)
+        if config.use_translation_file == 1:
+            self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
     def translate(self, text: str) -> str:
         return self.provider.translate(text)
@@ -89,35 +92,35 @@ class Translator:
         with open('translation.txt', 'r') as file:
             text = file.read()
         translated_sentences = self.text_processor.get_sentences(text)
-        result = []
-        current_src, current_trg = '', ''
-        i, j = 0, 0
-        s, t = len(original_sentences) - 1, len(translated_sentences) - 1
-        while i < s and j < t:
-            next_src_score = self.get_sentence_similarity_score(original_sentences[i + 1], translated_sentences[j])
-            next_trg_score = self.get_sentence_similarity_score(original_sentences[i], translated_sentences[j + 1])
-            next_both_score = self.get_sentence_similarity_score(original_sentences[i + 1], translated_sentences[j + 1])
-            if next_src_score > next_both_score:
-                current_src += f' {original_sentences[i]}'
-                i += 1
-            elif next_trg_score > next_both_score:
-                current_trg += f' {translated_sentences[j]}'
-                j += 1
-            else:
-                result.append((current_src, current_trg))
-                current_src = original_sentences[i]
-                current_trg = translated_sentences[j]
-                i += 1
-                j += 1
-        if current_src and current_trg:
-            result.append((current_src, current_trg))
-        if i == s and j == t:
-            result.append((original_sentences[i], translated_sentences[j]))
-        return zip(*result)
+        sentences = original_sentences + translated_sentences
+        embeddings = self.model.encode(sentences)
+        similarities = self.model.similarity(embeddings, embeddings)
 
-    def get_sentence_similarity_score(self, sentence_src: str, sentence_trg: str) -> float:
-        '''Simple similarity scoring based on percent of inner-aligned words.'''
-        alignment = self.aligner.get_word_aligns(sentence_src, sentence_trg)
-        aligned_words_count = len(alignment['inter'])
-        total_words = max(len(sentence_src.split()), len(sentence_trg.split()))
-        return aligned_words_count / total_words
+        result_idxs = []
+        nh, nf = len(original_sentences), len(sentences)
+        src_idx, trg_idx = 0, nh
+        while src_idx < nh and trg_idx < nf:
+            next_src_score = similarities[src_idx + 1][trg_idx] if src_idx + 1 < nh else 0
+            next_trg_score = similarities[src_idx][trg_idx + 1] if trg_idx + 1 < nf else 0
+            next_both_score = similarities[src_idx + 1][trg_idx + 1] if src_idx + 1 < nh and trg_idx + 1 < nf else 0
+            result_idxs.append((src_idx, trg_idx - nh))
+            if next_src_score > next_both_score:
+                src_idx += 1
+            elif next_trg_score > next_both_score:
+                trg_idx += 1
+            else:
+                src_idx += 1
+                trg_idx += 1
+
+        result = []
+        prev_src, prev_trg = -1, -1
+        for src, trg in result_idxs:
+            if src == prev_src:
+                result[-1][1] += f' {translated_sentences[trg]}'
+            elif trg == prev_trg:
+                result[-1][0] += f' {original_sentences[src]}'
+            else:
+                result.append([original_sentences[src], translated_sentences[trg]])
+            prev_src, prev_trg = src, trg
+
+        return zip(*result)
