@@ -25,20 +25,24 @@ input_storage_filename = 'lemmas'
 output_storage_filename = 'lemmas'
 save_results = False
 
-use_translation_file = 0  # 0 – False, 1 – raw, 2 – presaved
+use_translation_file = 1  # 0 – False, 1 – raw, 2 – presaved
 save_translation_to_file = True
 translation_provider = 'Argos'  # GoogleCloud, Argos
 
 
 # Speech synthesis config
 speech_synth = True
-synth_provider = 'gTTS'  # gTTS, CoquiTTS, OpenTTS, GoogleCloud
+synth_provider = 'GoogleCloud'  # gTTS, CoquiTTS, OpenTTS, GoogleCloud
 synth_model = 'tts_models/multilingual/multi-dataset/xtts_v2'
 voice_src = 'en-US-Wavenet-C'  # Tammie Ema, en-US-Wavenet-C
 voice_trg = 'ru-RU-Wavenet-C'
 sentence_pronunciation_speed = 0.9
 vocabulary_pronunciation_speed = 0.7
-use_ssml = False
+use_ssml = True
+
+# for the synthesis long audio (>5000b) with GoogleCloud
+google_cloud_project_id = os.getenv('GCP_ID')
+google_cloud_project_location = os.getenv('GCP_location')
 
 # synthesis with post audio alignment to reuse words for the dictionary from generated sentence
 use_mfa = False  # extremely long and jerkily :x

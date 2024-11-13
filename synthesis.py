@@ -3,7 +3,7 @@ from functools import wraps
 from io import BytesIO
 
 import regex as re
-from google.cloud import texttospeech
+from google.cloud import storage, texttospeech
 from gtts import gTTS
 from pydub import AudioSegment
 from TTS.api import TTS
@@ -82,7 +82,9 @@ class GoogleCloudTTSProvider:
     '''
 
     def __init__(self) -> None:
-        self.model = texttospeech.TextToSpeechClient()
+        self.client_short = texttospeech.TextToSpeechClient()
+        self.client_long = texttospeech.TextToSpeechLongAudioSynthesizeClient()
+        self.storage_client = storage.Client()
 
     def synthesize(self, text: str, lang: str, speed: float) -> AudioSegment:
         if config.use_ssml:
@@ -96,10 +98,39 @@ class GoogleCloudTTSProvider:
             )
             voice_name = config.voice_src if lang == config.voice_src[:2] else config.voice_trg
         lang = voice_name[:5]
-        voice = texttospeech.VoiceSelectionParams(language_code=lang)
-        response = self.model.synthesize_speech(input=input_text, voice=voice, audio_config=audio_config)
+        voice = texttospeech.VoiceSelectionParams(language_code=lang, name=voice_name)
+        if len(text) > 4990:
+            logging.debug('GC TTS: Long audio synthesis')
+            return self._synthesize_long(input_text, voice, audio_config)
+        return self._synthesize_short(input_text, voice, audio_config)
+
+    def _synthesize_short(self, input, voice, audio_config) -> AudioSegment:
+        response = self.client_short.synthesize_speech(input=input, voice=voice, audio_config=audio_config)
         audio_buffer = BytesIO()
         audio_buffer.write(response.audio_content)
+        audio_buffer.seek(0)
+        return AudioSegment.from_wav(audio_buffer)
+
+    def _synthesize_long(self, input, voice, audio_config) -> AudioSegment:
+        bucket = self.storage_client.bucket('sync_book')
+        blob = bucket.blob('audio_output.wav')
+        if blob.exists():
+            blob.delete()
+
+        parent = f'projects/{config.google_cloud_project_id}/locations/{config.google_cloud_project_location}'
+        output_gcs_uri = 'gs://sync_book/audio_output.wav'
+        request = texttospeech.SynthesizeLongAudioRequest(
+            input=input, voice=voice, audio_config=audio_config, parent=parent, output_gcs_uri=output_gcs_uri
+        )
+        operation = self.client_long.synthesize_long_audio(request=request)
+        result = operation.result(timeout=300)
+        logging.debug(
+            'Finished processing, check your GCS bucket to find your audio file!',
+            'Printing what should be an empty result: ',
+            result,
+        )
+        audio_buffer = BytesIO()
+        blob.download_to_file(audio_buffer)
         audio_buffer.seek(0)
         return AudioSegment.from_wav(audio_buffer)
 
