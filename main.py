@@ -45,7 +45,7 @@ class DependencyContainer:
             pickle.dump((self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter), file)
 
     def load_structures(self) -> None:
-        '''Load LemmaDict and LemmaTrie and progress from a previously saved file.'''
+        '''Load structures and progress from a previously saved file.'''
         with open(f'{config.input_storage_filename}.pkl', 'rb') as file:
             self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter = pickle.load(file)
 
@@ -114,7 +114,7 @@ class Main:
                     )
             self.container.synthesizer.save_audio(self.output_audio, 'multilingual_output')
         self.container.save_structures()
-        self.container.print_structures()
+        # self.container.print_structures()
 
 
 if __name__ == '__main__':

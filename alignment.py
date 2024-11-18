@@ -105,6 +105,8 @@ class TokenAligner:
     def one_to_one(self, idx_src: int) -> tuple[float, list[Token], list[Token]]:
         '''Process a source token with a single reference to target token.'''
         idx_trg = self.src_to_trg[idx_src][0]
+        if self.tokens_trg[idx_trg].is_punct:
+            return 0.0, [], []
         score = self._cosine_similarity(self.tokens_src[idx_src]._.embedding, self.tokens_trg[idx_trg]._.embedding)
         logging.debug(f'O2O with {score}')
         return score, [self.tokens_src[idx_src]], [self.tokens_trg[idx_trg]]
