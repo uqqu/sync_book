@@ -17,6 +17,7 @@ class TokenAligner:
         self.tokens_src = tokens_src
         self.tokens_trg = tokens_trg
         self.src_to_trg, self.trg_to_src = self._align_tokens()
+        self.seen = set()
 
     def _align_tokens(self) -> tuple[dict[int, list[int]], dict[int, list[int]]]:
         '''Get third-party pairwise alignment and revert it to cross-reference.'''
@@ -55,7 +56,7 @@ class TokenAligner:
         return float(dot_product / (norm_x * norm_y + 1e-8))
 
     @staticmethod
-    def _filter_aligned(tokens: list[Token], alignment: list[int], reverse=False) -> dict[int, Token]:
+    def _filter_aligned(tokens: list[Token], alignment: list[int] | tuple[int], reverse=False) -> dict[int, Token]:
         '''Helper for filtering only aligned or auxiliary tokens from given list.'''
         alignment = set(alignment)
         if reverse:
@@ -129,7 +130,11 @@ class TokenAligner:
         '''Process a source token chain that references multiple target tokens.'''
         best_src, best_trg, best_score = 0, 0, 0.0
         for idx_trg in self.src_to_trg[idx_src]:
-            checkable_tokens = self._filter_aligned(self.tokens_src, self.trg_to_src[idx_trg])
+            src_by_trg = tuple(self.trg_to_src[idx_trg])
+            if (idx_trg, src_by_trg) in self.seen:
+                continue
+            self.seen.add((idx_trg, src_by_trg))
+            checkable_tokens = self._filter_aligned(self.tokens_src, src_by_trg)
             curr_match, curr_score = self._find_best_match(checkable_tokens, self.tokens_trg[idx_trg])
             if curr_score > best_score:
                 best_src = curr_match

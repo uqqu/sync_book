@@ -59,7 +59,10 @@ class Sentence:
                     self.treat_dict_entity(idx_src, seq_tokens_src, seq_tokens_trg)
                 else:
                     translation = ' '.join(token.text for token in seq_tokens_trg)
-                    self.treat_trie_entity(Entity(translation), idx_src, seq_tokens_src, seq_tokens_trg)
+                    entity = self.container.lemma_trie.add(
+                        [token.lemma_ for token in seq_tokens_src], Entity(translation)
+                    )
+                    self.treat_trie_entity(entity, idx_src, seq_tokens_src, seq_tokens_trg)
 
         logging.info(f'Result: {self.result}, Possible Result: {self.possible_result}')
 
@@ -107,7 +110,7 @@ class Sentence:
         if lemma.check_repeat(pos) and entity.check_repeat(pos):
             lemma.update(pos)
             entity.update(pos)
-            self.result.append((' '.join(token.text for token in tokens_src), entity.translation))
+            self.result.append((' '.join(token.text.lower() for token in tokens_src), entity.translation))
             self.mfa_aligner.append_mfa_audio_to_output(tokens_src, entity.translation)
         self.skip |= set(tokens_src)
 
@@ -117,7 +120,7 @@ class Sentence:
         if entity.check_repeat(pos):
             entity.update(pos)
             self.result.append((' '.join(token.text.lower() for token in tokens_src), entity.translation))
-            self.mfa_aligner.append_mfa_audio_to_output(tokens_src, tokens_trg)
+            self.mfa_aligner.append_mfa_audio_to_output(tokens_src, tokens_trg if tokens_trg else entity.translation)
         self.skip |= set(tokens_src)
 
     @property

@@ -27,9 +27,11 @@ class DependencyContainer:
         except FileNotFoundError:
             self.lemma_dict = LemmaDict()
             self.lemma_trie = LemmaTrie()
+            self.entity_counter = 0
+            self.sentence_counter = 0
 
     def save_structures(self) -> None:
-        '''Save LemmaDict and LemmaTrie structures to file for future reuse. Keep previous version if exists.'''
+        '''Save structures and progress to file for future reuse. Keep previous version if exists.'''
         if not config.save_results:
             return
 
@@ -40,19 +42,38 @@ class DependencyContainer:
                 os.remove(old_filename)
             os.rename(filename, old_filename)
         with open(filename, 'wb') as file:
-            pickle.dump((self.lemma_dict, self.lemma_trie), file)
+            pickle.dump((self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter), file)
 
     def load_structures(self) -> None:
-        '''Load LemmaDict and LemmaTrie from a previously saved file.'''
+        '''Load LemmaDict and LemmaTrie and progress from a previously saved file.'''
         with open(f'{config.input_storage_filename}.pkl', 'rb') as file:
-            self.lemma_dict, self.lemma_trie = pickle.load(file)
+            self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter = pickle.load(file)
+
+    def print_structures(self):
+        '''Representation of the structures for debug and control.'''
+
+        def _print_trie(elem, spaces=0):
+            '''Representation of the lemma_trie for debug and control.'''
+            for word, child in elem.items():
+                if isinstance(child, LemmaTrie):
+                    print(f'{" " * spaces}{word}')
+                    _print_trie(child.children, spaces + len(word) + 1)
+                else:
+                    print(f'{" " * spaces}{child.translation=} {child.level=} {child.last_pos=}')
+
+        # lemma_trie
+        _print_trie(self.lemma_trie.children)
+        # lemma_dict
+        for lemma, child in self.lemma_dict.children.items():
+            print(lemma)
+            spaces = len(lemma)
+            for form, entity in child.children.items():
+                print(' ' * spaces, form, entity.translation, entity.level, entity.last_pos)
 
 
 class Main:
     def __init__(self) -> None:
         self.container = DependencyContainer()
-        self.sentence_counter = 0
-        self.entity_counter = 0
         # int: 0 – source sentence, 1 – target sentence, 2 – vocabulary, 3 – whitespaces
         self.output_text: list[tuple[int, str | list[tuple[str, str]]]] = []
         self.output_ssml: list[str] = ['<speak>']
@@ -72,10 +93,10 @@ class Main:
         if config.save_translation_to_file:
             self.container.translator.save_translation_to_file()
         for sentence_text in sentences:
-            sentence_obj = Sentence(sentence_text, self.entity_counter, self.container)
+            sentence_obj = Sentence(sentence_text, self.container.entity_counter, self.container)
             sentence_obj.process_tokens()
-            self.entity_counter = sentence_obj.entity_counter
-            self.sentence_counter += 1
+            self.container.entity_counter = sentence_obj.entity_counter
+            self.container.sentence_counter += 1
             self.output_ssml.append(sentence_obj.get_rendered_ssml())
             self.output_text.extend(sentence_obj.get_results())
             if config.speech_synth and config.use_mfa:
@@ -93,6 +114,7 @@ class Main:
                     )
             self.container.synthesizer.save_audio(self.output_audio, 'multilingual_output')
         self.container.save_structures()
+        self.container.print_structures()
 
 
 if __name__ == '__main__':
