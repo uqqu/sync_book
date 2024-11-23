@@ -83,38 +83,97 @@ class TextProcessing:
         with torch.no_grad():
             model_output = self.embedding_model(**tokenized_input, output_hidden_states=True)
 
-        # # averaging
         embeddings = torch.mean(torch.stack(model_output.hidden_states[-4:]), dim=0).squeeze(0)
-        # # max-pool
-        # hidden_states = torch.stack(model_output.hidden_states[-4:])
-        # embeddings = torch.max(hidden_states, dim=0)[0].squeeze(0)
-        # # attention
-        # attentions = model_output.attentions[-1]
-        # …
-        # # l2 norm
-        # embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
-        # # centering  # TODO?
-        # mean_embedding = torch.mean(embeddings, dim=0)
-        # embeddings = embeddings - mean_embedding
-
         bert_tokens = self.embedding_tokenizer.convert_ids_to_tokens(tokenized_input.input_ids[0])
+
+        if config.embedding_preprocessing_center:
+            mean_embedding = torch.mean(embeddings, dim=0)
+            embeddings = embeddings - mean_embedding
+
+        aggregators = {
+            'averaging': Averaging,
+            'maxpooling': MaxPooling,
+            'minpooling': MinPooling,
+            'attention': Attention,
+        }
+        aggregator = aggregators[config.embedding_aggregator.lower()](embeddings, len(bert_tokens))
+
         subword_count = 0
-        current_embedding = torch.zeros_like(embeddings[0])
         current_idx = 0
+
         for i, token in enumerate(bert_tokens):
             if offsets[i][0] == offsets[i][1]:
                 continue
             start, end = spacy_idx[offsets[i][0].item()], spacy_idx[offsets[i][1].item() - 1]
+
             if start != end:
                 raise RuntimeError(f'Intersect error. Bert "{token}", {offsets[i]} (spacy: {start}, {end})')
+
             if start == current_idx:
-                current_embedding += embeddings[i]
+                aggregator.append(i)
                 subword_count += 1
                 continue
+
             if subword_count:
-                spacy_tokens[current_idx]._.embedding = current_embedding / subword_count
-            current_embedding = embeddings[i]
+                spacy_tokens[current_idx]._.embedding = aggregator.get_final_embedding(subword_count)
+
+            aggregator.start_new_word(i)
             subword_count = 1
             current_idx = start
+
         if subword_count:
-            spacy_tokens[current_idx]._.embedding = current_embedding / subword_count
+            spacy_tokens[current_idx]._.embedding = aggregator.get_final_embedding(subword_count)
+
+
+class BaseAggregator:
+    def __init__(self, embeddings, n):
+        self.embeddings = embeddings
+        self.n = n
+        self.current_embeddings = []
+
+    def start_new_word(self, idx):
+        '''New word initialization.'''
+        self.current_embeddings = [self.embeddings[idx]]
+
+    def append(self, idx):
+        '''Add next subtoken.'''
+        self.current_embeddings.append(self.embeddings[idx])
+
+    def get_final_embedding(self, subword_count):
+        '''Final embedding by averaging all current embeddings.'''
+        return torch.mean(torch.stack(self.current_embeddings), dim=0)
+
+class Averaging(BaseAggregator):
+    pass  # no overrides needed
+
+class MaxPooling(BaseAggregator):
+    def get_final_embedding(self, _):
+        return torch.max(torch.stack(self.current_embeddings), dim=0).values
+
+class MinPooling(BaseAggregator):
+    def get_final_embedding(self, _):
+        return torch.min(torch.stack(self.current_embeddings), dim=0).values
+
+class Attention(BaseAggregator):
+    def __init__(self, embeddings, n):
+        super().__init__(embeddings, n)
+        self.attention_scores = torch.zeros(self.n, dtype=torch.float32)
+
+    def start_new_word(self, idx):
+        super().start_new_word(idx)
+        self.attention_scores = torch.zeros(self.n, dtype=torch.float32)
+        self.attention_scores[0] = torch.norm(self.embeddings[idx], p=2)
+
+    def append(self, idx):
+        super().append(idx)
+        attention_score = torch.matmul(self.embeddings[idx], torch.mean(torch.stack(self.current_embeddings), dim=0))
+        l2_norm = torch.norm(self.embeddings[idx], p=2)
+        self.attention_scores[len(self.current_embeddings) - 1] = attention_score * l2_norm
+
+    def get_final_embedding(self, subword_count):
+        '''Final embedding, weighted by attention_scores.'''
+        if torch.sum(self.attention_scores) != 0:
+            attention_weights = torch.nn.functional.softmax(self.attention_scores[:subword_count], dim=0)
+            return torch.sum(attention_weights.unsqueeze(1) * torch.stack(self.current_embeddings), dim=0)
+        else:
+            return super().get_final_embedding(subword_count)
