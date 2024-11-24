@@ -12,7 +12,7 @@ from synthesis import SpeechSynthesizer
 from text_processing import TextProcessing
 from translation import Translator
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class DependencyContainer:
@@ -53,7 +53,6 @@ class DependencyContainer:
         '''Representation of the structures for debug and control.'''
 
         def _print_trie(elem, spaces=0):
-            '''Representation of the lemma_trie for debug and control.'''
             for word, child in elem.items():
                 if isinstance(child, LemmaTrie):
                     print(f'{" " * spaces}{word}')
@@ -107,7 +106,9 @@ class Main:
         if config.speech_synth:
             if not config.use_mfa:
                 if config.use_ssml:
-                    self.output_audio = self.container.synthesizer.synthesize(''.join(self.output_ssml), '', 1)
+                    self.output_audio = self.container.synthesizer.synthesize(
+                        ''.join(self.output_ssml), config.source_lang, 1
+                    )
                 else:
                     self.output_audio = self.container.synthesizer.synthesize_by_parts(
                         self.output_text, config.sentence_pronunciation_speed

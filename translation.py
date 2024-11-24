@@ -41,13 +41,13 @@ class GCTranslationProvider:
 
     @cache
     def translate(self, text: str) -> str:
+        '''Generate new third-party translation.'''
         response = self.client.translate(text, source_language=self.source_lang, target_language=self.target_lang)
         return response['translatedText']
 
 
 class Translator:
     def __init__(self, container: 'DependencyContainer') -> None:
-        self.aligner = container.aligner
         self.text_processor = container.text_processor
         match config.translation_provider:
             case 'GoogleCloud':
@@ -68,15 +68,18 @@ class Translator:
 
     def process_sentences(self, original_sentences: list[str], use_translation_file: int) -> list[str]:
         '''Process all sentences according to current config rules.'''
-        if use_translation_file == 1:
-            result_src, result_trg = self.get_literary_translation_from_file(original_sentences)
-            self.translated = {self._get_stable_hash(src): trg for src, trg in zip(result_src, result_trg)}
-            return result_src
-        if use_translation_file == 2:
-            with open('translation.pkl', 'rb') as file:
-                self.translated = pickle.load(file)
-            return original_sentences
-        self.translated = {self._get_stable_hash(src): self.translate(src.rstrip()) for src in original_sentences}
+        match use_translation_file:
+            case 0:
+                self.translated = {
+                    self._get_stable_hash(src): self.translate(src.rstrip()) for src in original_sentences
+                }
+            case 1:
+                result_src, result_trg = self.get_literary_translation_from_file(original_sentences)
+                self.translated = {self._get_stable_hash(src): trg for src, trg in zip(result_src, result_trg)}
+                return result_src
+            case 2:
+                with open('translation.pkl', 'rb') as file:
+                    self.translated = pickle.load(file)
         return original_sentences
 
     def save_translation_to_file(self) -> None:

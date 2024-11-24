@@ -48,8 +48,8 @@ class TokenAligner:
     @cache
     def _cosine_similarity(x: 'torch.Tensor', y: 'torch.Tensor') -> float:
         '''Calculate the cosine similarity between two embedding vectors.'''
-        x = np.array(x)
-        y = np.array(y)
+        x = x.detach().numpy()
+        y = y.detach().numpy()
         dot_product = np.dot(x, y)
         norm_x = np.linalg.norm(x)
         norm_y = np.linalg.norm(y)
@@ -63,9 +63,9 @@ class TokenAligner:
             return {idx: token for idx, token in enumerate(tokens) if idx not in alignment or token.is_punct}
         return {idx: token for idx, token in enumerate(tokens) if idx in alignment or token.is_punct}
 
-    def _find_best_match(self, checkable_tokens: dict[int, Token], control_token: Token) -> tuple[int, float]:
+    def _find_best_match(self, checkable_tokens: dict[int, Token], control_token: Token) -> tuple[int | None, float]:
         '''Helper for determining the reference token for case of multiple alignments.'''
-        best_match_idx, best_score = 0, 0.0
+        best_match_idx, best_score = None, float('-inf')
         for idx, token in checkable_tokens.items():
             if token.is_punct:
                 continue
@@ -106,7 +106,7 @@ class TokenAligner:
         '''Process a source token with a single reference to target token.'''
         idx_trg = self.src_to_trg[idx_src][0]
         if self.tokens_trg[idx_trg].is_punct:
-            return 0.0, [], []
+            return float('-inf'), [], []
         score = self._cosine_similarity(self.tokens_src[idx_src]._.embedding, self.tokens_trg[idx_trg]._.embedding)
         logging.debug(f'O2O with {score}')
         return score, [self.tokens_src[idx_src]], [self.tokens_trg[idx_trg]]
@@ -115,6 +115,8 @@ class TokenAligner:
         '''Process a source token that references multiple target tokens.'''
         checkable_tokens = self._filter_aligned(self.tokens_trg, self.src_to_trg[idx_src])
         best_match_idx, best_score = self._find_best_match(checkable_tokens, self.tokens_src[idx_src])
+        if best_match_idx is None:
+            return float('-inf'), [], []
         seq_tokens_trg = self._get_token_sequence(checkable_tokens, best_match_idx)
         logging.debug(f'O2M ({len(seq_tokens_trg)}) sequence with {best_score}')
         return best_score, [self.tokens_src[idx_src]], seq_tokens_trg
@@ -124,13 +126,15 @@ class TokenAligner:
         idx_trg = self.src_to_trg[idx_src][0]
         checkable_tokens = self._filter_aligned(self.tokens_src, self.trg_to_src[idx_trg])
         best_match_idx, best_score = self._find_best_match(checkable_tokens, self.tokens_trg[idx_trg])
+        if best_match_idx is None:
+            return float('-inf'), [], []
         seq_tokens_src = self._get_token_sequence(checkable_tokens, best_match_idx)
         logging.debug(f'M2O ({len(seq_tokens_src)}) sequence with {best_score}')
         return best_score, seq_tokens_src, [self.tokens_trg[idx_trg]]
 
     def many_to_many(self, idx_src: int) -> tuple[float, list[Token], list[Token]]:
         '''Process a source token chain that references multiple target tokens.'''
-        best_src, best_trg, best_score = 0, 0, 0.0
+        best_src, best_trg, best_score = None, None, float('-inf')
         for idx_trg in self.src_to_trg[idx_src]:
             src_by_trg = tuple(self.trg_to_src[idx_trg])
             if (idx_trg, src_by_trg) in self.seen:
@@ -143,6 +147,8 @@ class TokenAligner:
                 best_trg = idx_trg
                 best_score = curr_score
 
+        if best_src is None:
+            return float('-inf'), [], []
         checkable_tokens_src = self._filter_aligned(self.tokens_src, self.trg_to_src[best_trg])
         checkable_tokens_trg = self._filter_aligned(self.tokens_trg, self.src_to_trg[best_src])
         seq_tokens_src = self._get_token_sequence(checkable_tokens_src, best_src)

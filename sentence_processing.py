@@ -42,8 +42,8 @@ class Sentence:
             elif not re.match(config.word_pattern, token_src.text):  # skip punct w/o counting
                 self.entity_counter -= 1
                 logging.debug('Skipping punctuation')
-            elif token_src.ent_type_ in config.untranslatable_entities:
-                logging.debug(f'Skipping untranslatable entity: {token_src.ent_type_}')
+            elif token_src.ent_type_ in config.untranslatable_entities or token_src.pos_ == 'DET':
+                logging.debug(f'Skipping untranslatable entity or arcicle: {token_src.ent_type_} – {token_src.pos_}')
             elif self.trie_search_and_process(idx_src):  # check multiword origin chain
                 logging.debug('Found multiword chain')
             elif self._is_start_of_named_entity(idx_src):  # treat named entity chain and add tokens to 'skip'
@@ -55,6 +55,7 @@ class Sentence:
                 if score < config.min_align_weight:
                     logging.debug(f'Rejected after alignment: {score}, {seq_tokens_src}, {seq_tokens_trg}')
                     continue
+                logging.debug(f'Approved after alignment: {score}, {seq_tokens_src}, {seq_tokens_trg}')
                 if len(seq_tokens_src) == 1:
                     self.treat_dict_entity(idx_src, seq_tokens_src, seq_tokens_trg)
                 else:

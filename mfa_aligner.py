@@ -54,7 +54,8 @@ class MFAligner:
             translation_audio = self.synth.synthesize(result_trg, config.target_lang)
             self.output_audio += translation_audio
 
-    def _align_audio(self, text: str, audio_buffer: 'AudioSegment', lang: str, output_pathfile: str) -> str:
+    @staticmethod
+    def _align_audio(text: str, audio_buffer: 'AudioSegment', lang: str, output_pathfile: str) -> str:
         '''Align provided audio buffer with the given text using MFA.'''
         os.makedirs('temp', exist_ok=True)
         audio_buffer.export('temp/temp.wav', format='wav')
@@ -66,7 +67,8 @@ class MFAligner:
         subprocess.run(command, check=True)
         return f'{output_pathfile}.TextGrid'
 
-    def _split_audio_by_alignment(self, audio: 'AudioSegment', textgrid_pathfile: str) -> list[dict]:
+    @staticmethod
+    def _split_audio_by_alignment(audio: 'AudioSegment', textgrid_pathfile: str) -> list[dict]:
         '''Split the given audio buffer into segments based on alignment data from a TextGrid file.'''
         textgrid = tgt.io.read_textgrid(textgrid_pathfile)
         segments = []
