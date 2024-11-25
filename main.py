@@ -17,7 +17,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 class DependencyContainer:
     def __init__(self) -> None:
-        self.aligner = SentenceAligner(model='xlm-roberta-base', token_type='bpe', matching_methods='a')
+        method = {'inter': 'a', 'mwmf': 'm', 'itermax': 'i', 'fwd': 'f', 'rev': 'r'}[config.alignment_matching_method]
+        self.aligner = SentenceAligner(model='xlm-roberta-base', token_type='bpe', matching_methods=method)
         self.synthesizer = SpeechSynthesizer()
         self.text_processor = TextProcessing()
         self.translator = Translator(self)
@@ -99,16 +100,14 @@ class Main:
             self.output_ssml.append(sentence_obj.get_rendered_ssml())
             self.output_text.extend(sentence_obj.get_results())
             if config.speech_synth and config.use_mfa:
-                self.output_audio += sentence_obj.get_result_mfa_audio()
+                self.output_audio += sentence_obj.get_result_mfa_audio() + self.container.synthesizer.silent(100)
 
         self.output_ssml.append('</speak>')
 
         if config.speech_synth:
             if not config.use_mfa:
                 if config.use_ssml:
-                    self.output_audio = self.container.synthesizer.synthesize(
-                        ''.join(self.output_ssml), config.source_lang, 1
-                    )
+                    self.output_audio = self.container.synthesizer.synthesize(''.join(self.output_ssml), '', 1)
                 else:
                     self.output_audio = self.container.synthesizer.synthesize_by_parts(
                         self.output_text, config.sentence_pronunciation_speed

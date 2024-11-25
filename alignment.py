@@ -6,6 +6,8 @@ from functools import cache
 import numpy as np
 from spacy.tokens import Token
 
+import config
+
 warnings.filterwarnings('ignore', category=FutureWarning)
 
 
@@ -25,7 +27,7 @@ class TokenAligner:
         logging.info(f'Alignment: {align}')
         src_to_trg = defaultdict(list)
         trg_to_src = defaultdict(list)
-        for a, b in align['inter']:
+        for a, b in align[config.alignment_matching_method]:
             src_to_trg[a].append(b)
             trg_to_src[b].append(a)
         return src_to_trg, trg_to_src
@@ -99,6 +101,8 @@ class TokenAligner:
         '''Try to manual add pair (one-to-one only) for unaligned token.'''
         unaligned_trg_tokens = self._filter_aligned(self.tokens_trg, self.trg_to_src.keys(), reverse=True)
         best_match_idx, best_score = self._find_best_match(unaligned_trg_tokens, self.tokens_src[idx_src])
+        if best_match_idx is None:
+            return float('-inf'), [], []
         logging.debug(f'Unaligned with {best_score}')
         return best_score, [self.tokens_src[idx_src]], [self.tokens_trg[best_match_idx]]
 

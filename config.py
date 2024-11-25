@@ -12,6 +12,7 @@ target_lang = 'ru'
 source_full_lang = 'english'
 target_full_lang = 'russian'
 
+alignment_matching_method = 'inter'  # inter, mwmf, itermax, fwd, rev
 embedding_preprocessing_center = False
 embedding_aggregator = 'averaging'  # Averaging, MaxPooling, MinPooling, Attention
 min_align_weight = 0.7
@@ -34,8 +35,8 @@ translation_provider = 'Argos'  # GoogleCloud, Argos
 
 
 # Speech synthesis config
-speech_synth = False
-synth_provider = 'GoogleCloud'  # gTTS, CoquiTTS, OpenTTS, GoogleCloud
+speech_synth = True
+synth_provider = 'gTTS'  # gTTS, CoquiTTS, GoogleCloud
 synth_model = 'tts_models/multilingual/multi-dataset/xtts_v2'
 voice_src = 'en-US-Wavenet-C'  # Tammie Ema, en-US-Wavenet-C
 voice_trg = 'ru-RU-Wavenet-C'
@@ -50,5 +51,5 @@ google_cloud_project_location = os.getenv('GCP_location')
 # synthesis with post audio alignment to reuse words for the dictionary from generated sentence
 use_mfa = False  # extremely long and jerkily :x
 mfa_dir = os.getenv('mfa_path')  # …/MFA/pretrained_models/
-mfa_start_shift_ms = 5
-mfa_end_shift_ms = 10
+mfa_start_shift_ms = 2
+mfa_end_shift_ms = 3
