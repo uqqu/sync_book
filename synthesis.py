@@ -87,7 +87,7 @@ class GoogleCloudTTSProvider:
         self.storage_client = storage.Client()
 
     def synthesize(self, text: str, lang: str, speed: float) -> AudioSegment:
-        if config.use_ssml:
+        if config.use_ssml and not config.use_mfa:
             input_text = texttospeech.SynthesisInput(ssml=text)
             audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
             voice_name = config.voice_src
@@ -96,7 +96,7 @@ class GoogleCloudTTSProvider:
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.LINEAR16, speaking_rate=speed
             )
-            voice_name = config.voice_src if lang == config.voice_src[:2] else config.voice_trg
+            voice_name = config.voice_src if lang == config.source_lang else config.voice_trg
         lang = voice_name[:5]
         voice = texttospeech.VoiceSelectionParams(language_code=lang, name=voice_name)
         if len(text) > 4990:

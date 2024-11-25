@@ -33,7 +33,7 @@ class ArgosTranslateProvider:
         return argostranslate.translate.translate(text, self.source_lang, self.target_lang)
 
 
-class GCTranslationProvider:
+class GCTranslateProvider:
     def __init__(self, source_lang: str, target_lang: str) -> None:
         self.client = translate_v2.Client()
         self.source_lang = source_lang
@@ -51,7 +51,7 @@ class Translator:
         self.text_processor = container.text_processor
         match config.translation_provider:
             case 'GoogleCloud':
-                provider = GCTranslationProvider
+                provider = GCTranslateProvider
             case 'Argos':
                 provider = ArgosTranslateProvider
         self.provider = provider(config.source_lang, config.target_lang)

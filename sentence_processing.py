@@ -52,10 +52,16 @@ class Sentence:
                 logging.debug('Skipping stopword')
             else:
                 score, seq_tokens_src, seq_tokens_trg = self.aligner.process_alignment(idx_src)
+                seq_tokens_src = [x for x in seq_tokens_src if not x.pos_ == 'DET']
+                seq_tokens_trg = [x for x in seq_tokens_trg if not x.pos_ == 'DET']
+                if not seq_tokens_src or not seq_tokens_trg:
+                    continue
+
                 if score < config.min_align_weight:
                     logging.debug(f'Rejected after alignment: {score}, {seq_tokens_src}, {seq_tokens_trg}')
                     continue
                 logging.debug(f'Approved after alignment: {score}, {seq_tokens_src}, {seq_tokens_trg}')
+
                 if len(seq_tokens_src) == 1:
                     self.treat_dict_entity(idx_src, seq_tokens_src, seq_tokens_trg)
                 else:
@@ -112,7 +118,7 @@ class Sentence:
             lemma.update(pos)
             entity.update(pos)
             self.result.append((' '.join(token.text.lower() for token in tokens_src), entity.translation))
-            self.mfa_aligner.append_mfa_audio_to_output(tokens_src, entity.translation)
+            self.mfa_aligner.append_mfa_audio_to_output(tokens_src, tokens_trg)
         self.skip |= set(tokens_src)
 
     def treat_trie_entity(self, entity: Entity, idx: int, tokens_src: list['Token'], tokens_trg=None) -> None:
@@ -128,8 +134,8 @@ class Sentence:
     def _translation_line_condition(self) -> bool:
         '''Rule for adding a complete sentence translation to result.'''
         n = len(self.result)
-        third = len(self.tokens_src) // 3
-        return n > 6 or 2 < n > third
+        quarter = len(self.tokens_src) // 4
+        return n > 5 or 2 < n > quarter
 
     def get_results(self) -> list[tuple[int, str | list[tuple[str, str]]]]:
         '''Return original and translated (if needed) sentences [0, 1], vocabulary tokens[2] and whitespace tail[3].'''
@@ -148,9 +154,10 @@ class Sentence:
         '''Return rendered ssml output for synthesis with provider that supports ssml.'''
         if not config.use_ssml:
             return ''
+        translated = self.translated_sentence.rstrip() if self._translation_line_condition else ''
         return self.template.render(
             sentence=self.sentence.rstrip(),
-            translated_sentence=self.translated_sentence.rstrip(),
+            translated_sentence=translated,
             result=self.result,
             voice_trg=config.voice_trg,
             sentence_speed=config.sentence_pronunciation_speed,

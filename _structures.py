@@ -6,7 +6,7 @@ import config
 class BaseNode:
     '''Parent for entities and lemmas.'''
 
-    def __init__(self, intervals: list[int]) -> None:
+    def __init__(self, intervals: tuple[int]) -> None:
         self.intervals = intervals
         self.last_pos = 0
         self.level = 0
@@ -46,16 +46,16 @@ class LemmaDict(BaseNode):
 
     def add(self, lemma_src: str, text_src: str, lemma_trg: str, text_trg: str) -> tuple['LemmaDict', Entity]:
         '''Add combined lemma and specific word with leaf 'Entity' for translation (w/o overwrite for all).'''
-        key = f'{lemma_src}-{lemma_trg}'
+        lemma_key = f'{lemma_src}-{lemma_trg}'
 
-        if key not in self.children:
-            self.children[key] = LemmaDict()
-        lemma_obj = self.children[key]
-        if text_src not in lemma_obj.children:
-            ent_obj = Entity(text_trg)
-            lemma_obj.children[text_src] = ent_obj
+        if lemma_key not in self.children:
+            self.children[lemma_key] = LemmaDict()
+        lemma_obj = self.children[lemma_key]
+        ent_key = f'{text_src}-{text_trg}'
+        if ent_key not in lemma_obj.children:
+            lemma_obj.children[ent_key] = Entity(text_trg)
 
-        return lemma_obj, lemma_obj.children[text_src]
+        return lemma_obj, lemma_obj.children[ent_key]
 
 
 class LemmaTrie:
