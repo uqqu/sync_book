@@ -1,16 +1,15 @@
 ﻿import logging
-import os
 import pickle
 
+from core._structures import LemmaDict, LemmaTrie
+from core.sentence_processing import Sentence
+from core.synthesis import SpeechSynthesizer
+from core.text_processing import TextProcessing
+from core.translation import Translator
 from simalign import SentenceAligner
 from spacy.tokens import Token
 
 import config
-from _structures import LemmaDict, LemmaTrie
-from sentence_processing import Sentence
-from synthesis import SpeechSynthesizer
-from text_processing import TextProcessing
-from translation import Translator
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -36,18 +35,19 @@ class DependencyContainer:
         if not config.save_results:
             return
 
-        filename = f'{config.output_storage_filename}.pkl'
-        if os.path.exists(filename):
-            old_filename = f'{filename}.old'
-            if os.path.exists(old_filename):
-                os.remove(old_filename)
-            os.rename(filename, old_filename)
-        with open(filename, 'wb') as file:
+        filepath = config._root_dir / f'{config.output_storage_filename}.pkl'
+        if filepath.exists():
+            old_filepath = filepath.with_suffix('.pkl.old')
+            if old_filepath.exists():
+                old_filepath.unlink()
+            filepath.rename(old_filepath)
+
+        with open(filepath, 'wb') as file:
             pickle.dump((self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter), file)
 
     def load_structures(self) -> None:
         '''Load structures and progress from a previously saved file.'''
-        with open(f'{config.input_storage_filename}.pkl', 'rb') as file:
+        with open(config._root_dir / f'{config.input_storage_filename}.pkl', 'rb') as file:
             self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter = pickle.load(file)
 
     def print_structures(self):
@@ -85,6 +85,9 @@ class Main:
             if not Token.has_extension('audio'):
                 Token.set_extension('audio', default=self.container.synthesizer.silent(200))
 
+        if config.use_mfa or config.save_translation_to_file or config.use_translation_file == 2:
+            (config._root_dir / 'temp').mkdir(exist_ok=True)
+
     def process(self, text: str) -> None:
         '''Main app cycle.'''
         sentences = self.container.text_processor.get_sentences(text)
@@ -119,7 +122,7 @@ class Main:
 
 if __name__ == '__main__':
     app = Main()
-    with open('text.txt', 'r') as file:
+    with open(config._root_dir / 'input_text.txt', 'r') as file:
         text = file.read()
     app.process(text)
     print(

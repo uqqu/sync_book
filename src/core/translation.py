@@ -78,13 +78,13 @@ class Translator:
                 self.translated = {self._get_stable_hash(src): trg for src, trg in zip(result_src, result_trg)}
                 return result_src
             case 2:
-                with open('translation.pkl', 'rb') as file:
+                with open(config._root_dir / 'temp' / 'translation.pkl', 'rb') as file:
                     self.translated = pickle.load(file)
         return original_sentences
 
     def save_translation_to_file(self) -> None:
         '''Save translation in order to reduce the number of requests to external translators.'''
-        with open('translation.pkl', 'wb') as file:
+        with open(config._root_dir / 'temp' / 'translation.pkl', 'wb') as file:
             pickle.dump(self.translated, file)
 
     def get_translated_sentence(self, sentence: str) -> str:
@@ -92,7 +92,7 @@ class Translator:
 
     def get_literary_translation_from_file(self, original_sentences: list[str]) -> tuple[list[str], list[str]]:
         '''Use existing translation from file as parallel text.'''
-        with open('translation.txt', 'r') as file:
+        with open(config._root_dir / 'input_translation.txt', 'r') as file:
             text = file.read()
         translated_sentences = self.text_processor.get_sentences(text)
         sentences = original_sentences + translated_sentences

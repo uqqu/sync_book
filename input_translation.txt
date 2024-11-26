@@ -1,0 +1,1 @@
+# Place here the translated text if you want to use your own, and set 'use_translation_file' to '1' in the config.py. Otherwise, just ignore.

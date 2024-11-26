@@ -1,6 +1,6 @@
 ﻿import logging
-import os
 import subprocess
+from pathlib import Path
 
 import tgt
 
@@ -23,14 +23,10 @@ class MFAligner:
 
     def _process_mfa_alignment(self) -> None:
         '''Recognize and set word fragments to token attributes for future addition to audio output.'''
-        alignment_src = self._align_audio(
-            self.parent.sentence, self.sentence_audio, config.source_full_lang, 'temp/temp'
-        )
-        segments_src = self._split_audio_by_alignment(self.sentence_audio, alignment_src)
-        alignment_trg = self._align_audio(
-            self.parent.translated_sentence, self.translated_audio, config.target_full_lang, 'temp/temp'
-        )
-        segments_trg = self._split_audio_by_alignment(self.translated_audio, alignment_trg)
+        self._align_audio(self.parent.sentence, self.sentence_audio, config.source_full_lang)
+        segments_src = self._split_audio_by_alignment(self.sentence_audio)
+        self._align_audio(self.parent.translated_sentence, self.translated_audio, config.target_full_lang)
+        segments_trg = self._split_audio_by_alignment(self.translated_audio)
         for segments, tokens in ((segments_src, self.parent.tokens_src), (segments_trg, self.parent.tokens_trg)):
             i, j = 0, 0
             while i < len(segments) and j < len(tokens):
@@ -55,22 +51,21 @@ class MFAligner:
             self.output_audio += translation_audio
 
     @staticmethod
-    def _align_audio(text: str, audio_buffer: 'AudioSegment', lang: str, output_pathfile: str) -> str:
+    def _align_audio(text: str, audio_buffer: 'AudioSegment', lang: str) -> str:
         '''Align provided audio buffer with the given text using MFA.'''
-        os.makedirs('temp', exist_ok=True)
-        audio_buffer.export('temp/temp.wav', format='wav')
-        with open('temp/temp.txt', 'w', encoding='utf-8') as f:
+        temp = config._root_dir / 'temp'
+        audio_buffer.export(temp / 'temp.wav', format='wav')
+        with open(temp / 'temp.txt', 'w', encoding='utf-8') as f:
             f.write(text)
-        dict_path = f'{config.mfa_dir}dictionary//{lang}_mfa.dict'
-        model_path = f'{config.mfa_dir}acoustic//{lang}_mfa.zip'
-        command = ['mfa', 'align', '--clean', '--single_speaker', 'temp', dict_path, model_path, './temp/']
+        dict_path = Path(config.mfa_dir) / 'dictionary' / f'{lang}_mfa.dict'
+        model_path = Path(config.mfa_dir) / 'acoustic' / f'{lang}_mfa.zip'
+        command = ['mfa', 'align', '--clean', '--single_speaker', str(temp), dict_path, model_path, str(temp)]
         subprocess.run(command, check=True)
-        return f'{output_pathfile}.TextGrid'
 
     @staticmethod
-    def _split_audio_by_alignment(audio: 'AudioSegment', textgrid_pathfile: str) -> list[dict]:
+    def _split_audio_by_alignment(audio: 'AudioSegment') -> list[dict]:
         '''Split the given audio buffer into segments based on alignment data from a TextGrid file.'''
-        textgrid = tgt.io.read_textgrid(textgrid_pathfile)
+        textgrid = tgt.io.read_textgrid(config._root_dir / 'temp' / 'temp.TextGrid')
         segments = []
 
         word_tier = textgrid.get_tier_by_name('words')

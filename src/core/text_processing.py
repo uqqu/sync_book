@@ -143,16 +143,20 @@ class BaseAggregator:
         '''Final embedding by averaging all current embeddings.'''
         return torch.mean(torch.stack(self.current_embeddings), dim=0)
 
+
 class Averaging(BaseAggregator):
     pass  # no overrides needed
+
 
 class MaxPooling(BaseAggregator):
     def get_final_embedding(self, _):
         return torch.max(torch.stack(self.current_embeddings), dim=0).values
 
+
 class MinPooling(BaseAggregator):
     def get_final_embedding(self, _):
         return torch.min(torch.stack(self.current_embeddings), dim=0).values
+
 
 class Attention(BaseAggregator):
     def __init__(self, embeddings, n):

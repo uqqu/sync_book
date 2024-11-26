@@ -181,4 +181,4 @@ class SpeechSynthesizer:
 
     @staticmethod
     def save_audio(audio: AudioSegment, name: str) -> None:
-        audio.export(f'{name}.wav', format='wav')
+        audio.export(config._root_dir / f'{name}.wav', format='wav')

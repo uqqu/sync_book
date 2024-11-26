@@ -1,5 +1,6 @@
 import os
 from itertools import pairwise
+from pathlib import Path
 
 import regex as re
 from nltk.corpus import stopwords
@@ -25,9 +26,9 @@ stop_words |= set(stopwords.words(target_full_lang))
 untranslatable_entities = {'PERSON', 'DATE'}  # TODO PRODUCT, TIME?
 word_pattern = re.compile(r"^\p{L}[\p{L}\p{Pd}'’ʼ]*\p{L}$")
 
-input_storage_filename = 'lemmas'
-output_storage_filename = 'lemmas'
-save_results = False
+input_storage_filename = 'user_storage'
+output_storage_filename = 'user_storage'
+save_results = True
 
 use_translation_file = 0  # 0 – False, 1 – raw, 2 – presaved
 save_translation_to_file = True
@@ -53,3 +54,6 @@ use_mfa = False  # extremely long and jerkily :x
 mfa_dir = os.getenv('mfa_path')  # …/MFA/pretrained_models/
 mfa_start_shift_ms = 2
 mfa_end_shift_ms = 3
+
+
+_root_dir = Path(__file__).resolve().parent.parent

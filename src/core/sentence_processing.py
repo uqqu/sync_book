@@ -1,12 +1,12 @@
 ﻿import logging
 
 import regex as re
+from core._structures import Entity
+from core.alignment import TokenAligner
+from core.mfa_aligner import MFAligner
 from jinja2 import Template
 
 import config
-from _structures import Entity
-from alignment import TokenAligner
-from mfa_aligner import MFAligner
 
 
 class Sentence:
@@ -23,7 +23,7 @@ class Sentence:
         container.text_processor.add_tokens_embeddings(self.translated_sentence, self.tokens_trg)
 
         self.aligner = TokenAligner(container, self.tokens_src, self.tokens_trg)
-        with open('template.min.ssml', 'r') as file:
+        with open(config._root_dir / 'src' / 'templates' / 'template.min.ssml', 'r') as file:
             self.template = Template(file.read())
 
         self.mfa_aligner = MFAligner(self)
