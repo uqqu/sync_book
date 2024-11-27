@@ -1,8 +1,8 @@
 import logging
 
+import regex as re
 import spacy
 import torch
-from spacy.tokens import Doc, Token
 from transformers import AutoModel, AutoTokenizer
 
 import config
@@ -29,14 +29,13 @@ class TextProcessing:
         model = self.nlp_src if is_source else self.nlp_trg
         return [sentence.text for sentence in model(text).sents]
 
-    def get_tokens(self, sentence: str, is_source: bool) -> Doc:
-        return self.nlp_src(sentence) if is_source else self.nlp_trg(sentence)
-
-    def get_merged_tokens(self, sentence: str, lang: str) -> list[Token]:
-        return self._merge_tokens(self.get_tokens(sentence, lang == self.source_lang), sentence)
+    def get_merged_tokens(self, sentence: str, lang: str) -> list['Token']:
+        return self._merge_tokens(
+            self.nlp_src(sentence) if lang == self.source_lang else self.nlp_trg(sentence), sentence
+        )
 
     @staticmethod
-    def _merge_tokens(doc: Doc, original_text: str) -> list[Token]:
+    def _merge_tokens(doc: 'Doc', original_text: str) -> list['Token']:
         '''Union problematic [eng] spacy tokens for simplier synchronization with Bert tokens.
 
         Our goal is to make the spacy tokens larger than the Bert tokens,
@@ -47,29 +46,37 @@ class TextProcessing:
         n = len(doc)
         while i < n:
             token = doc[i]
-            if ('\'' in token.text or '’' in token.text) and i > 0:
+            cur_text = token.text.lower()
+            prev_text = doc[i - 1].text.lower() if i > 0 else ''
+            next_text = doc[i + 1].text.lower() if i < n - 1 else ''
+
+            if ({'\'', '’'} & {cur_text[0], cur_text[-1]}) and i > 0:
                 spans_to_merge.append(doc[i - 1 : i + 1])
+
             elif i < n - 1 and (
-                token.text == 'can' and doc[i + 1].text == 'not' or token.is_punct and doc[i + 1].is_punct
+                (cur_text == 'can' and next_text == 'not')
+                or (token.is_punct and doc[i + 1].is_punct)
+                or (re.match(r'^\p{Sc}$', cur_text) and re.match(r'^\d{1,3}([., ]\d{2,3})*$', next_text))
+                or (re.match(r'^\p{L}+$', cur_text) and re.match(r'^n[\'’]t$', next_text))
             ):
                 spans_to_merge.append(doc[i : i + 2])
-            elif token.text == '-' and 0 < i < n - 1:
-                if original_text[token.idx - 1].isalpha() and original_text[token.idx + 1].isalpha():
-                    start = i - 1
-                    end = i + 2
-                    while end < n and doc[end].text == '-' and original_text[doc[end].idx + 1].isalpha():
-                        end += 2
-                    spans_to_merge.append(doc[start:end])
-                    logging.debug(f'Adding span to merge (complex hyphenated chain): {doc[start:end]}')
-                    i = end - 1
+
+            elif 0 < i < n - 1 and re.match(r'\p{L}-\p{L}', f'{prev_text[-1]}{cur_text}{next_text[0]}'):
+                start = i - 1
+                end = i + 2
+                while end < n and doc[end].text == '-' and original_text[doc[end].idx + 1].isalpha():
+                    end += 2
+                spans_to_merge.append(doc[start:end])
+                logging.debug(f'Adding span to merge (complex hyphenated chain): {doc[start:end]}')
+                i = end - 1
             i += 1
         filtered_spans = spacy.util.filter_spans(spans_to_merge)
         with doc.retokenize() as retokenizer:
             for span in filtered_spans:
                 retokenizer.merge(span)
-        return [token for token in doc if '\n' not in token.text]
+        return [token for token in doc if not token.is_space]
 
-    def add_tokens_embeddings(self, sentence: str, spacy_tokens: list[Token]) -> None:
+    def add_tokens_embeddings(self, sentence: str, spacy_tokens: list['Token']) -> None:
         '''Add embedding attribute to spacy tokens, using Bert.
 
         Bert subword-tokens are merged into a single spacy token with a mean embedding value.
@@ -132,7 +139,7 @@ class BaseAggregator:
         self.current_embeddings = []
 
     def start_new_word(self, idx):
-        '''New word initialization.'''
+        '''Initialize a new word.'''
         self.current_embeddings = [self.embeddings[idx]]
 
     def append(self, idx):
@@ -140,7 +147,7 @@ class BaseAggregator:
         self.current_embeddings.append(self.embeddings[idx])
 
     def get_final_embedding(self, subword_count):
-        '''Final embedding by averaging all current embeddings.'''
+        '''Create final embedding by averaging all current embeddings.'''
         return torch.mean(torch.stack(self.current_embeddings), dim=0)
 
 
@@ -175,9 +182,8 @@ class Attention(BaseAggregator):
         self.attention_scores[len(self.current_embeddings) - 1] = attention_score * l2_norm
 
     def get_final_embedding(self, subword_count):
-        '''Final embedding, weighted by attention_scores.'''
+        '''Create final embedding weighted by attention_scores.'''
         if torch.sum(self.attention_scores) != 0:
             attention_weights = torch.nn.functional.softmax(self.attention_scores[:subword_count], dim=0)
             return torch.sum(attention_weights.unsqueeze(1) * torch.stack(self.current_embeddings), dim=0)
-        else:
-            return super().get_final_embedding(subword_count)
+        return super().get_final_embedding(subword_count)
