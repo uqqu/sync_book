@@ -57,6 +57,10 @@ class LemmaDict(BaseNode):
 
         return lemma_obj, lemma_obj.children[ent_key]
 
+    def length(self) -> tuple[int, int]:
+        '''Get count of lemmas and their entities.'''
+        return len(self.children), sum(len(x.children) for x in self.children.values())
+
 
 class LemmaTrie:
     '''Trie structure to store chain of lemmas for idioms and expressions.
@@ -91,3 +95,7 @@ class LemmaTrie:
         if lemmas[0] not in self.children:
             self.children[lemmas[0]] = LemmaTrie()
         return self.children[lemmas[0]].add(lemmas[1:], entity)
+
+    def length(self) -> int:
+        '''Get count of all leafs.'''
+        return sum(child.length() if isinstance(child, LemmaTrie) else 1 for child in self.children.values())

@@ -1,5 +1,5 @@
-import os
 from itertools import pairwise
+from os import getenv
 from pathlib import Path
 
 import regex as re
@@ -41,17 +41,17 @@ synth_provider = 'gTTS'  # gTTS, CoquiTTS, GoogleCloud
 synth_model = 'tts_models/multilingual/multi-dataset/xtts_v2'
 voice_src = 'en-US-Wavenet-C'  # Tammie Ema, en-US-Wavenet-C
 voice_trg = 'ru-RU-Wavenet-C'
-sentence_pronunciation_speed = 0.9
-vocabulary_pronunciation_speed = 0.7
+sentence_pronunciation_speed = 1
+vocabulary_pronunciation_speed = 0.85
 use_ssml = False
 
 # for the synthesis long audio (>5000b) with GoogleCloud
-google_cloud_project_id = os.getenv('GCP_ID')
-google_cloud_project_location = os.getenv('GCP_location')
+google_cloud_project_id = getenv('GCP_ID')
+google_cloud_project_location = getenv('GCP_location')
 
 # synthesis with post audio alignment to reuse words for the dictionary from generated sentence
 use_mfa = False  # extremely long and jerkily :x
-mfa_dir = os.getenv('mfa_path')  # …/MFA/pretrained_models/
+mfa_dir = getenv('mfa_path')  # …/MFA/pretrained_models/
 mfa_start_shift_ms = 2
 mfa_end_shift_ms = 3
 

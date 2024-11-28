@@ -24,7 +24,13 @@ class DependencyContainer:
 
         try:
             self.load_structures()
+            len_dict = self.lemma_dict.length()
+            logging.info(
+                'Succesfully loaded previous user structures. '
+                f'Dict {len_dict[0]} ({len_dict[1]}), Trie {self.lemma_trie.length()}'
+            )
         except FileNotFoundError:
+            logging.info('Failed when attempting to load user structures.')
             self.lemma_dict = LemmaDict()
             self.lemma_trie = LemmaTrie()
             self.entity_counter = 0
@@ -92,7 +98,7 @@ class Main:
         '''Main app cycle.'''
         sentences = self.container.text_processor.get_sentences(text)
         # it may be changed after the sentence alignment with the literary translation
-        sentences = self.container.translator.process_sentences(sentences, config.use_translation_file)
+        sentences = self.container.translator.process_sentences(sentences)
         if config.save_translation_to_file:
             self.container.translator.save_translation_to_file()
         for sentence_text in sentences:
@@ -122,9 +128,9 @@ class Main:
 
 if __name__ == '__main__':
     app = Main()
-    with open(config._root_dir / 'input_text.txt', 'r') as file:
-        text = file.read()
-    app.process(text)
+    with open(config._root_dir / 'input_text.txt', 'r', encoding='utf-8') as textfile:
+        input_text = textfile.read()
+    app.process(input_text)
     print(
         ' '.join(
             x[1] if isinstance(x[1], str) else f"[{', '.join(f'{a}–{b}' for a, b in x[1])}]" for x in app.output_text

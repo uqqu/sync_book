@@ -99,7 +99,7 @@ class GoogleCloudTTSProvider:
             voice_name = config.voice_src if lang == config.source_lang else config.voice_trg
         lang = voice_name[:5]
         voice = texttospeech.VoiceSelectionParams(language_code=lang, name=voice_name)
-        if len(text) > 4990:
+        if len(text.encode('utf-8')) > 4990:
             logging.debug('GC TTS: Long audio synthesis')
             return self._synthesize_long(input_text, voice, audio_config)
         return self._synthesize_short(input_text, voice, audio_config)

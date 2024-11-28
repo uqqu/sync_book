@@ -30,12 +30,10 @@ class TextProcessing:
         return [sentence.text for sentence in model(text).sents]
 
     def get_merged_tokens(self, sentence: str, lang: str) -> list['Token']:
-        return self._merge_tokens(
-            self.nlp_src(sentence) if lang == self.source_lang else self.nlp_trg(sentence), sentence
-        )
+        return self._merge_tokens(self.nlp_src(sentence) if lang == self.source_lang else self.nlp_trg(sentence))
 
     @staticmethod
-    def _merge_tokens(doc: 'Doc', original_text: str) -> list['Token']:
+    def _merge_tokens(doc: 'Doc') -> list['Token']:
         '''Union problematic [eng] spacy tokens for simplier synchronization with Bert tokens.
 
         Our goal is to make the spacy tokens larger than the Bert tokens,
@@ -57,14 +55,14 @@ class TextProcessing:
                 (cur_text == 'can' and next_text == 'not')
                 or (token.is_punct and doc[i + 1].is_punct)
                 or (re.match(r'^\p{Sc}$', cur_text) and re.match(r'^\d{1,3}([., ]\d{2,3})*$', next_text))
-                or (re.match(r'^\p{L}+$', cur_text) and re.match(r'^n[\'’]t$', next_text))
+                or (re.match(r'^\p{L}+$', cur_text) and re.match(r'^n[\'’]?t$', next_text))
             ):
                 spans_to_merge.append(doc[i : i + 2])
 
-            elif 0 < i < n - 1 and re.match(r'\p{L}-\p{L}', f'{prev_text[-1]}{cur_text}{next_text[0]}'):
+            elif 0 < i < n - 1 and re.match(r'^\p{L}-\p{L}$', f'{prev_text[-1]}{cur_text}{next_text[0]}'):
                 start = i - 1
                 end = i + 2
-                while end < n and doc[end].text == '-' and original_text[doc[end].idx + 1].isalpha():
+                while end < n - 1 and re.match(r'^-\p{L}$', f'{doc[end].text}{doc[end + 1].text[0]}'):
                     end += 2
                 spans_to_merge.append(doc[start:end])
                 logging.debug(f'Adding span to merge (complex hyphenated chain): {doc[start:end]}')

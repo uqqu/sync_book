@@ -1,4 +1,5 @@
 ﻿import logging
+from itertools import dropwhile
 
 import regex as re
 from core._structures import Entity
@@ -23,18 +24,17 @@ class Sentence:
         container.text_processor.add_tokens_embeddings(self.translated_sentence, self.tokens_trg)
 
         self.aligner = TokenAligner(container, self.tokens_src, self.tokens_trg)
-        with open(config._root_dir / 'src' / 'templates' / 'template.min.ssml', 'r') as file:
+        with open(config._root_dir / 'src' / 'templates' / 'template.min.ssml', 'r', encoding='utf-8') as file:
             self.template = Template(file.read())
 
         self.mfa_aligner = MFAligner(self)
 
         self.result: list[tuple[str, str]] = []
-        self.possible_result: list[tuple[str, str]] = []
+        self.possible_result: list[tuple[float, str, str]] = []
         self.skip: set['Token'] = set()
 
     def process_tokens(self) -> None:
         for idx_src, token_src in enumerate(self.tokens_src):
-            # TODO POS aligning
             self.entity_counter += 1
             logging.debug(f'Processing token: {token_src}')
             if token_src in self.skip:  # skip token if it has already been processed
@@ -42,8 +42,11 @@ class Sentence:
             elif not re.match(config.word_pattern, token_src.text):  # skip punct w/o counting
                 self.entity_counter -= 1
                 logging.debug('Skipping punctuation')
-            elif token_src.ent_type_ in config.untranslatable_entities or token_src.pos_ == 'DET':
-                logging.debug(f'Skipping untranslatable entity or arcicle: {token_src.ent_type_} – {token_src.pos_}')
+            elif token_src.ent_type_ in config.untranslatable_entities or 'Art' in token_src.morph.get('PronType'):
+                logging.debug(
+                    f'Skipping untranslatable entity or article: {token_src.ent_type_}'
+                    f'– {token_src.morph.get("PronType")}'
+                )
             elif self.trie_search_and_process(idx_src):  # check multiword origin chain
                 logging.debug('Found multiword chain')
             elif self._is_start_of_named_entity(idx_src):  # treat named entity chain and add tokens to 'skip'
@@ -52,24 +55,25 @@ class Sentence:
                 logging.debug('Skipping stopword')
             else:
                 score, seq_tokens_src, seq_tokens_trg = self.aligner.process_alignment(idx_src)
-                seq_tokens_src = [x for x in seq_tokens_src if not x.pos_ == 'DET']
-                seq_tokens_trg = [x for x in seq_tokens_trg if not x.pos_ == 'DET']
+                seq_tokens_src = list(dropwhile(lambda t: 'Art' in t.morph.get('PronType'), seq_tokens_src))
+                seq_tokens_trg = list(dropwhile(lambda t: 'Art' in t.morph.get('PronType'), seq_tokens_trg))
                 if not seq_tokens_src or not seq_tokens_trg:
                     continue
 
                 if score < config.min_align_weight:
+                    self.possible_result.append((round(score, 2), seq_tokens_src, seq_tokens_trg))
                     logging.debug(f'Rejected after alignment: {score}, {seq_tokens_src}, {seq_tokens_trg}')
                     continue
                 logging.debug(f'Approved after alignment: {score}, {seq_tokens_src}, {seq_tokens_trg}')
 
                 if len(seq_tokens_src) == 1:
-                    self.treat_dict_entity(idx_src, seq_tokens_src, seq_tokens_trg)
+                    self.treat_dict_entity(seq_tokens_src, seq_tokens_trg)
                 else:
                     translation = ' '.join(token.text for token in seq_tokens_trg)
                     entity = self.container.lemma_trie.add(
                         [token.lemma_ for token in seq_tokens_src], Entity(translation)
                     )
-                    self.treat_trie_entity(entity, idx_src, seq_tokens_src, seq_tokens_trg)
+                    self.treat_trie_entity(entity, seq_tokens_src, seq_tokens_trg)
 
         logging.info(f'Result: {self.result}, Possible Result: {self.possible_result}')
 
@@ -77,7 +81,7 @@ class Sentence:
         '''Look for existing source multiword sequence in LemmaTrie.'''
         entity, depth = self.container.lemma_trie.search(self.tokens_src[idx_src:])
         if depth > 1:
-            self.treat_trie_entity(entity, idx_src, self.tokens_src[idx_src : idx_src + depth])
+            self.treat_trie_entity(entity, self.tokens_src[idx_src : idx_src + depth])
             output = ' '.join(token.text for token in self.tokens_src[idx_src : idx_src + depth])
             logging.debug('Known multiword chain found: {output}')
             return True
@@ -102,10 +106,10 @@ class Sentence:
 
         translation = self.container.translator.translate(' '.join(token.text for token in seq_tokens))
         entity = self.container.lemma_trie.add([token.lemma_ for token in seq_tokens], Entity(translation))
-        self.treat_trie_entity(entity, idx_src, seq_tokens)
+        self.treat_trie_entity(entity, seq_tokens)
         logging.debug(f'Named entity found and processed: {seq_tokens}')
 
-    def treat_dict_entity(self, idx: int, tokens_src: list['Token'], tokens_trg: list['Token']) -> None:
+    def treat_dict_entity(self, tokens_src: list['Token'], tokens_trg: list['Token']) -> None:
         '''Check and update repeat distance for both LemmaDict and it Entity child.'''
         lemma_src = ' '.join(token.lemma_ for token in tokens_src)
         lemma_trg = ' '.join(token.lemma_ for token in tokens_trg)
@@ -113,19 +117,17 @@ class Sentence:
         text_trg = ' '.join(token.text.lower() for token in tokens_trg)
         lemma, entity = self.container.lemma_dict.add(lemma_src, text_src, lemma_trg, text_trg)
 
-        pos = self.entity_counter + idx
-        if lemma.check_repeat(pos) and entity.check_repeat(pos):
-            lemma.update(pos)
-            entity.update(pos)
+        if lemma.check_repeat(self.entity_counter) and entity.check_repeat(self.entity_counter):
+            lemma.update(self.entity_counter)
+            entity.update(self.entity_counter)
             self.result.append((' '.join(token.text.lower() for token in tokens_src), entity.translation))
             self.mfa_aligner.append_mfa_audio_to_output(tokens_src, tokens_trg)
         self.skip |= set(tokens_src)
 
-    def treat_trie_entity(self, entity: Entity, idx: int, tokens_src: list['Token'], tokens_trg=None) -> None:
+    def treat_trie_entity(self, entity: Entity, tokens_src: list['Token'], tokens_trg=None) -> None:
         '''Check and update repeat distance for Entity (as LemmaTrie leaf).'''
-        pos = self.entity_counter + idx
-        if entity.check_repeat(pos):
-            entity.update(pos)
+        if entity.check_repeat(self.entity_counter):
+            entity.update(self.entity_counter)
             self.result.append((' '.join(token.text.lower() for token in tokens_src), entity.translation))
             self.mfa_aligner.append_mfa_audio_to_output(tokens_src, tokens_trg if tokens_trg else entity.translation)
         self.skip |= set(tokens_src)

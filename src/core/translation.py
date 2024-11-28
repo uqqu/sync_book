@@ -27,7 +27,6 @@ class ArgosTranslateProvider:
         package_to_install = next(filter(lambda x: x.from_code == source_lang and x.to_code == target_lang, available))
         argostranslate.package.install_from_path(package_to_install.download())
 
-    @cache
     def translate(self, text: str) -> str:
         '''Generate new third-party translation.'''
         return argostranslate.translate.translate(text, self.source_lang, self.target_lang)
@@ -39,7 +38,6 @@ class GCTranslateProvider:
         self.source_lang = source_lang
         self.target_lang = target_lang
 
-    @cache
     def translate(self, text: str) -> str:
         '''Generate new third-party translation.'''
         response = self.client.translate(text, source_language=self.source_lang, target_language=self.target_lang)
@@ -58,6 +56,7 @@ class Translator:
         if config.use_translation_file == 1:
             self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
+    @cache
     def translate(self, text: str) -> str:
         return self.provider.translate(text)
 
@@ -66,9 +65,9 @@ class Translator:
         '''Helper for getting stable hash for the same sentences between sessions.'''
         return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
-    def process_sentences(self, original_sentences: list[str], use_translation_file: int) -> list[str]:
+    def process_sentences(self, original_sentences: list[str]) -> list[str]:
         '''Process all sentences according to current config rules.'''
-        match use_translation_file:
+        match config.use_translation_file:
             case 0:
                 self.translated = {
                     self._get_stable_hash(src): self.translate(src.rstrip()) for src in original_sentences
@@ -115,7 +114,7 @@ class Translator:
                 src_idx += 1
                 trg_idx += 1
 
-        result = []
+        result: list[list[str]] = []
         prev_src, prev_trg = -1, -1
         for src, trg in result_idxs:
             if src == prev_src:

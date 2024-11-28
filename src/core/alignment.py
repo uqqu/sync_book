@@ -1,7 +1,6 @@
 import logging
 import warnings
 from collections import defaultdict
-from functools import cache
 
 import numpy as np
 from spacy.tokens import Token
@@ -24,7 +23,7 @@ class TokenAligner:
     def _align_tokens(self) -> tuple[dict[int, list[int]], dict[int, list[int]]]:
         '''Get third-party pairwise alignment and revert it to cross-reference.'''
         align = self.aligner.get_word_aligns([t.text for t in self.tokens_src], [t.text for t in self.tokens_trg])
-        logging.info(f'Alignment: {align}')
+        logging.debug(f'Alignment: {align}')
         src_to_trg = defaultdict(list)
         trg_to_src = defaultdict(list)
         for a, b in align[config.alignment_matching_method]:
@@ -47,7 +46,6 @@ class TokenAligner:
         return self.many_to_many(idx_src)
 
     @staticmethod
-    @cache
     def _cosine_similarity(x: 'torch.Tensor', y: 'torch.Tensor') -> float:
         '''Calculate the cosine similarity between two embedding vectors.'''
         x = x.detach().numpy()
