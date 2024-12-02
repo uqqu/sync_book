@@ -1,0 +1,21 @@
+name: sync_book
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - ffmpeg=7.0.1
+  - gtts==2.5.4
+  - nltk==3.9.1
+  - pydub==0.25.1
+  - sentence-transformers==3.3.1
+  - spacy==3.7.2
+  - pip:
+    - argostranslate==1.9.6
+    - grpcio==1.67.0
+    - google-cloud-storage==2.18.2
+    - google-cloud-texttospeech==2.21.1
+    - google-cloud-translate==3.18.0
+    - simalign==0.4
+    - tgt==1.5
+    - tts==0.22.0

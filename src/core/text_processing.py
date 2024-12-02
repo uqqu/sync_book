@@ -12,6 +12,10 @@ class TextProcessing:
     def __init__(self) -> None:
         self.source_lang = config.source_lang
 
+        for model in (config.source_model, config.target_model):
+            if not spacy.util.is_package(model):
+                spacy.cli.download(model)
+
         self.nlp_src = spacy.load(config.source_model)
         self.nlp_trg = spacy.load(config.target_model)
         for nlp in (self.nlp_src, self.nlp_trg):
