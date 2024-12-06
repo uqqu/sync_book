@@ -6,18 +6,15 @@ from core.sentence_processing import Sentence
 from core.synthesis import SpeechSynthesizer
 from core.text_processing import TextProcessing
 from core.translation import Translator
-from simalign import SentenceAligner
 from spacy.tokens import Token
 
 import config
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class DependencyContainer:
     def __init__(self) -> None:
-        method = {'inter': 'a', 'mwmf': 'm', 'itermax': 'i', 'fwd': 'f', 'rev': 'r'}[config.alignment_matching_method]
-        self.aligner = SentenceAligner(model='xlm-roberta-base', token_type='bpe', matching_methods=method)
         self.synthesizer = SpeechSynthesizer()
         self.text_processor = TextProcessing()
         self.translator = Translator(self)

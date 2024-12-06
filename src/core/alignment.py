@@ -1,49 +1,30 @@
-import logging
 import warnings
 from collections import defaultdict
-
-import numpy as np
-from spacy.tokens import Token
+from itertools import dropwhile
 
 import config
+import numpy as np
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
 
 class TokenAligner:
-    '''Align given spacy tokens for two languages (original sentence + translated).'''
-
-    def __init__(self, container: 'DependencyContainer', tokens_src: list[Token], tokens_trg: list[Token]) -> None:
-        self.aligner = container.aligner
+    '''Align tokens for two languages by their embeddings.'''
+    def __init__(self, tokens_src: list['Token'], tokens_trg: list['Token']) -> None:
         self.tokens_src = tokens_src
         self.tokens_trg = tokens_trg
-        self.src_to_trg, self.trg_to_src = self._align_tokens()
-        self.seen = set()
-
-    def _align_tokens(self) -> tuple[dict[int, list[int]], dict[int, list[int]]]:
-        '''Get third-party pairwise alignment and revert it to cross-reference.'''
-        align = self.aligner.get_word_aligns([t.text for t in self.tokens_src], [t.text for t in self.tokens_trg])
-        logging.debug(f'Alignment: {align}')
-        src_to_trg = defaultdict(list)
-        trg_to_src = defaultdict(list)
-        for a, b in align[config.alignment_matching_method]:
-            src_to_trg[a].append(b)
-            trg_to_src[b].append(a)
-        return src_to_trg, trg_to_src
-
-    def process_alignment(self, idx_src: int) -> tuple[float, list[Token], list[Token]]:
-        '''Treat token with detected align-relation.'''
-        if idx_src not in self.src_to_trg:
-            return self.treat_not_aligned_token(idx_src)
-        to_trg_len = len(self.src_to_trg[idx_src])
-        to_src_len = len(self.trg_to_src[self.src_to_trg[idx_src][0]])
-        if to_trg_len == 1 and to_src_len == 1:
-            return self.one_to_one(idx_src)
-        if to_trg_len == 1 and to_src_len > 1:
-            return self.many_to_one(idx_src)
-        if to_trg_len > 1 and all(len(self.trg_to_src[x]) == 1 for x in self.src_to_trg[idx_src]):
-            return self.one_to_many(idx_src)
-        return self.many_to_many(idx_src)
+        self.alignment = np.zeros((len(self.tokens_src), len(self.tokens_trg)))
+        for i, src_token in enumerate(self.tokens_src):
+            for j, trg_token in enumerate(self.tokens_trg):
+                self.alignment[i, j] = self._cosine_similarity(src_token._.embedding, trg_token._.embedding)
+        self.src_to_trg = {}
+        self.trg_to_src = defaultdict(list)
+        self.construct_pairs()
+        for i, v in self.src_to_trg.items():
+            for j in v:
+                self.trg_to_src[j].append(i)
+        self.src_to_trg = {i: sorted(v) for i, v in self.src_to_trg.items()}
+        self.trg_to_src = {i: sorted(v) for i, v in self.trg_to_src.items()}
 
     @staticmethod
     def _cosine_similarity(x: 'torch.Tensor', y: 'torch.Tensor') -> float:
@@ -55,105 +36,63 @@ class TokenAligner:
         norm_y = np.linalg.norm(y)
         return float(dot_product / (norm_x * norm_y + 1e-8))
 
-    @staticmethod
-    def _filter_aligned(tokens: list[Token], alignment: list[int] | tuple[int], reverse=False) -> dict[int, Token]:
-        '''Helper for filtering only aligned or auxiliary tokens from given list.'''
-        alignment = set(alignment)
-        if reverse:
-            return {idx: token for idx, token in enumerate(tokens) if idx not in alignment or token.is_punct}
-        return {idx: token for idx, token in enumerate(tokens) if idx in alignment or token.is_punct}
+    def construct_pairs(self) -> None:
+        '''Recursively find neighbouring pairs for tokens in the same dimension.'''
+        start_i, start_j = np.unravel_index(np.argmax(self.alignment), self.alignment.shape)
+        if self.alignment[start_i, start_j] < config.min_align_weight:
+            return
+        src_tokens = [start_i]
+        trg_tokens = [start_j]
+        i, j = start_i, start_j
+        for si in (1, -1):
+            while 0 < i < len(self.tokens_src) - 1:
+                i += si
+                if np.argmax(self.alignment[i, :]) != j or self.alignment[i, j] < config.min_align_weight:
+                    break
+                src_tokens.append(i)
+            i = start_i
+        self.alignment[start_i, :] = 0
 
-    def _find_best_match(self, checkable_tokens: dict[int, Token], control_token: Token) -> tuple[int | None, float]:
-        '''Helper for determining the reference token for case of multiple alignments.'''
-        best_match_idx, best_score = None, float('-inf')
-        for idx, token in checkable_tokens.items():
-            if token.is_punct:
-                continue
-            score = self._cosine_similarity(token._.embedding, control_token._.embedding)
-            if score > best_score:
-                best_score = score
-                best_match_idx = idx
-        return best_match_idx, best_score
+        for sj in (1, -1):
+            while 0 < j < len(self.tokens_trg) - 1:
+                j += sj
+                if np.argmax(self.alignment[:, j]) != i or self.alignment[i, j] < config.min_align_weight:
+                    break
+                trg_tokens.append(j)
+            j = start_j
+        self.alignment[:, start_j] = 0
 
-    @staticmethod
-    def _get_token_sequence(tokens: dict[int, Token], idx: int) -> list[Token]:
-        '''Helper for filtering only sequential tokens from given.'''
-        if not tokens:
-            return []
-        seq_tokens = [tokens[idx]]
-        for i in range(idx - 1, -1, -1):
-            if i not in tokens:
+        self._append_pairs(src_tokens, trg_tokens)
+        self.construct_pairs()
+
+    def _append_pairs(self, src_tokens: list[int], trg_tokens: list[int]) -> None:
+        '''Convert pairs of tokens to groups and save it.'''
+        l1 = lambda tokens: lambda t: 'Art' in tokens[t].morph.get('PronType')
+        l2 = lambda tokens: lambda t: 'Art' in tokens[t].morph.get('PronType') or tokens[t].is_punct
+        src_tokens = list(dropwhile(l1(self.tokens_src), list(dropwhile(l2(self.tokens_src), src_tokens[::-1]))[::-1]))
+        trg_tokens = list(dropwhile(l1(self.tokens_trg), list(dropwhile(l2(self.tokens_trg), trg_tokens[::-1]))[::-1]))
+        if not src_tokens or not trg_tokens:
+            return
+
+        cur_obj = None
+        for i in src_tokens:
+            if i in self.src_to_trg:
+                cur_obj = self.src_to_trg[i]
                 break
-            if tokens[i].is_punct:
-                continue
-            seq_tokens.insert(0, tokens[i])
-        for i in range(idx + 1, int(max(tokens.keys())) + 1):
-            if i not in tokens:
-                break
-            if tokens[i].is_punct:
-                continue
-            seq_tokens.append(tokens[i])
-        return seq_tokens
 
-    def treat_not_aligned_token(self, idx_src: int) -> tuple[float, list[Token], list[Token]]:
-        '''Try to manual add pair (one-to-one only) for unaligned token.'''
-        unaligned_trg_tokens = self._filter_aligned(self.tokens_trg, self.trg_to_src.keys(), reverse=True)
-        best_match_idx, best_score = self._find_best_match(unaligned_trg_tokens, self.tokens_src[idx_src])
-        if best_match_idx is None:
-            return float('-inf'), [], []
-        logging.debug(f'Unaligned with {best_score}')
-        return best_score, [self.tokens_src[idx_src]], [self.tokens_trg[best_match_idx]]
+        if cur_obj is None:
+            cur_obj = set(trg_tokens)
+        else:
+            cur_obj |= set(trg_tokens)
 
-    def one_to_one(self, idx_src: int) -> tuple[float, list[Token], list[Token]]:
-        '''Process a source token with a single reference to target token.'''
-        idx_trg = self.src_to_trg[idx_src][0]
-        if self.tokens_trg[idx_trg].is_punct:
-            return float('-inf'), [], []
-        score = self._cosine_similarity(self.tokens_src[idx_src]._.embedding, self.tokens_trg[idx_trg]._.embedding)
-        logging.debug(f'O2O with {score}')
-        return score, [self.tokens_src[idx_src]], [self.tokens_trg[idx_trg]]
+        for i in src_tokens:
+            self.src_to_trg[i] = cur_obj
 
-    def one_to_many(self, idx_src: int) -> tuple[float, list[Token], list[Token]]:
-        '''Process a source token that references multiple target tokens.'''
-        checkable_tokens = self._filter_aligned(self.tokens_trg, self.src_to_trg[idx_src])
-        best_match_idx, best_score = self._find_best_match(checkable_tokens, self.tokens_src[idx_src])
-        if best_match_idx is None:
-            return float('-inf'), [], []
-        seq_tokens_trg = self._get_token_sequence(checkable_tokens, best_match_idx)
-        logging.debug(f'O2M ({len(seq_tokens_trg)}) sequence with {best_score}')
-        return best_score, [self.tokens_src[idx_src]], seq_tokens_trg
-
-    def many_to_one(self, idx_src: int) -> tuple[float, list[Token], list[Token]]:
-        '''Process a source token chain with a single reference to target token.'''
-        idx_trg = self.src_to_trg[idx_src][0]
-        checkable_tokens = self._filter_aligned(self.tokens_src, self.trg_to_src[idx_trg])
-        best_match_idx, best_score = self._find_best_match(checkable_tokens, self.tokens_trg[idx_trg])
-        if best_match_idx is None:
-            return float('-inf'), [], []
-        seq_tokens_src = self._get_token_sequence(checkable_tokens, best_match_idx)
-        logging.debug(f'M2O ({len(seq_tokens_src)}) sequence with {best_score}')
-        return best_score, seq_tokens_src, [self.tokens_trg[idx_trg]]
-
-    def many_to_many(self, idx_src: int) -> tuple[float, list[Token], list[Token]]:
-        '''Process a source token chain that references multiple target tokens.'''
-        best_src, best_trg, best_score = None, None, float('-inf')
-        for idx_trg in self.src_to_trg[idx_src]:
-            src_by_trg = tuple(self.trg_to_src[idx_trg])
-            if (idx_trg, src_by_trg) in self.seen:
-                continue
-            self.seen.add((idx_trg, src_by_trg))
-            checkable_tokens = self._filter_aligned(self.tokens_src, src_by_trg)
-            curr_match, curr_score = self._find_best_match(checkable_tokens, self.tokens_trg[idx_trg])
-            if curr_score > best_score:
-                best_src = curr_match
-                best_trg = idx_trg
-                best_score = curr_score
-
-        if best_src is None:
-            return float('-inf'), [], []
-        checkable_tokens_src = self._filter_aligned(self.tokens_src, self.trg_to_src[best_trg])
-        checkable_tokens_trg = self._filter_aligned(self.tokens_trg, self.src_to_trg[best_src])
-        seq_tokens_src = self._get_token_sequence(checkable_tokens_src, best_src)
-        seq_tokens_trg = self._get_token_sequence(checkable_tokens_trg, best_trg)
-        logging.debug(f'M2M ({len(seq_tokens_src)}, {len(seq_tokens_trg)}) with {best_score}')
-        return best_score, seq_tokens_src, seq_tokens_trg
+    def process_alignment(self, idx_src: int) -> tuple[list, list]:
+        '''Return aligned tokens by source index.'''
+        if idx_src not in self.src_to_trg:
+            return [], []
+        return (
+            [self.tokens_src[i] for i in self.trg_to_src[self.src_to_trg[idx_src][0]]],
+            [self.tokens_trg[i] for i in self.src_to_trg[idx_src]],
+        )

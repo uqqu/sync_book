@@ -23,14 +23,13 @@ class Sentence:
         container.text_processor.add_tokens_embeddings(self.sentence, self.tokens_src)
         container.text_processor.add_tokens_embeddings(self.translated_sentence, self.tokens_trg)
 
-        self.aligner = TokenAligner(container, self.tokens_src, self.tokens_trg)
+        self.aligner = TokenAligner(self.tokens_src, self.tokens_trg)
         with open(config._root_dir / 'src' / 'templates' / 'template.min.ssml', 'r', encoding='utf-8') as file:
             self.template = Template(file.read())
 
         self.mfa_aligner = MFAligner(self)
 
         self.result: list[tuple[str, str]] = []
-        self.possible_result: list[tuple[float, str, str]] = []
         self.skip: set['Token'] = set()
 
     def process_tokens(self) -> None:
@@ -54,17 +53,9 @@ class Sentence:
             elif token_src.text.lower() in config.stop_words:  # only after multiword check
                 logging.debug('Skipping stopword')
             else:
-                score, seq_tokens_src, seq_tokens_trg = self.aligner.process_alignment(idx_src)
-                seq_tokens_src = list(dropwhile(lambda t: 'Art' in t.morph.get('PronType'), seq_tokens_src))
-                seq_tokens_trg = list(dropwhile(lambda t: 'Art' in t.morph.get('PronType'), seq_tokens_trg))
+                seq_tokens_src, seq_tokens_trg = self.aligner.process_alignment(idx_src)
                 if not seq_tokens_src or not seq_tokens_trg:
                     continue
-
-                if score < config.min_align_weight:
-                    self.possible_result.append((round(score, 2), seq_tokens_src, seq_tokens_trg))
-                    logging.debug(f'Rejected after alignment: {score}, {seq_tokens_src}, {seq_tokens_trg}')
-                    continue
-                logging.debug(f'Approved after alignment: {score}, {seq_tokens_src}, {seq_tokens_trg}')
 
                 if len(seq_tokens_src) == 1:
                     self.treat_dict_entity(seq_tokens_src, seq_tokens_trg)
@@ -75,7 +66,7 @@ class Sentence:
                     )
                     self.treat_trie_entity(entity, seq_tokens_src, seq_tokens_trg)
 
-        logging.info(f'Result: {self.result}, Possible Result: {self.possible_result}')
+        logging.info(f'Result: {self.result}')
 
     def trie_search_and_process(self, idx_src: int) -> bool:
         '''Look for existing source multiword sequence in LemmaTrie.'''

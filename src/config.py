@@ -13,10 +13,9 @@ target_lang = 'ru'
 source_full_lang = 'english'
 target_full_lang = 'russian'
 
-alignment_matching_method = 'inter'  # inter, mwmf, itermax, fwd, rev
 embedding_preprocessing_center = False
-embedding_aggregator = 'averaging'  # Averaging, MaxPooling, MinPooling, Attention
-min_align_weight = 0.7
+embedding_aggregator = 'attention'  # Averaging, MaxPooling, MinPooling, Attention
+min_align_weight = 0.66
 
 lemma_intervals = tuple(b - a for a, b in pairwise(int(1.05**i) for i in range(190, 600)))
 entity_intervals = tuple(b - a for a, b in pairwise(int(1.1**i) for i in range(190, 600)))
@@ -41,8 +40,8 @@ synth_provider = 'gTTS'  # gTTS, CoquiTTS, GoogleCloud
 synth_model = 'tts_models/multilingual/multi-dataset/xtts_v2'
 voice_src = 'en-US-Wavenet-C'  # Tammie Ema, en-US-Wavenet-C
 voice_trg = 'ru-RU-Wavenet-C'
-sentence_pronunciation_speed = 1
-vocabulary_pronunciation_speed = 0.85
+sentence_pronunciation_speed = 0.9
+vocabulary_pronunciation_speed = 0.8
 use_ssml = False
 
 # for the synthesis long audio (>5000b) with GoogleCloud

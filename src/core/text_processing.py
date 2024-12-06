@@ -22,7 +22,7 @@ class TextProcessing:
             nlp.add_pipe('sentencizer', before='parser')
             nlp.get_pipe('sentencizer').punct_chars.update((';', '\n', '\n\n', '\n\n\n'))
 
-        embedding_model_name = 'bert-base-multilingual-cased'
+        embedding_model_name = 'sentence-transformers/LaBSE'
         self.embedding_tokenizer = AutoTokenizer.from_pretrained(embedding_model_name)
         self.embedding_model = AutoModel.from_pretrained(embedding_model_name)
 

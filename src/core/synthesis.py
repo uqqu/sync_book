@@ -124,11 +124,7 @@ class GoogleCloudTTSProvider:
         )
         operation = self.client_long.synthesize_long_audio(request=request)
         result = operation.result(timeout=300)
-        logging.debug(
-            'Finished processing, check your GCS bucket to find your audio file!',
-            'Printing what should be an empty result: ',
-            result,
-        )
+        logging.debug(result)
         audio_buffer = BytesIO()
         blob.download_to_file(audio_buffer)
         audio_buffer.seek(0)
