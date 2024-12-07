@@ -80,4 +80,6 @@ class MFAligner:
     def get_result_audio(self, additional_translation: bool = False) -> 'AudioSegment':
         if additional_translation:
             self.output_audio += self.translated_audio
+            if config.repeat_original_sentence_after_translated:
+                self.output_audio += self.sentence_audio
         return self.output_audio

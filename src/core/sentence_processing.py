@@ -1,13 +1,13 @@
 ﻿import logging
 from itertools import dropwhile
 
+import config
 import regex as re
+from jinja2 import Template
+
 from core._structures import Entity
 from core.alignment import TokenAligner
 from core.mfa_aligner import MFAligner
-from jinja2 import Template
-
-import config
 
 
 class Sentence:
@@ -126,9 +126,11 @@ class Sentence:
     @property
     def _translation_line_condition(self) -> bool:
         '''Rule for adding a complete sentence translation to result.'''
+        if not config.min_new_words_part_to_add:
+            return False
+
         n = len(self.result)
-        quarter = len(self.tokens_src) // 4
-        return n > 5 or 2 < n > quarter
+        return n >= config.min_new_words_count_to_add or n >= len(self.tokens_src) // config.min_new_words_part_to_add
 
     def get_results(self) -> list[tuple[int, str | list[tuple[str, str]]]]:
         '''Return original and translated (if needed) sentences [0, 1], vocabulary tokens[2] and whitespace tail[3].'''
@@ -139,6 +141,8 @@ class Sentence:
             result.append((2, self.result))
             if self._translation_line_condition:
                 result.append((1, self.translated_sentence))
+                if config.repeat_original_sentence_after_translated:
+                    result.append((0, stripped))
         if tail:
             result.append((3, tail))
         return result
@@ -155,6 +159,7 @@ class Sentence:
             voice_trg=config.voice_trg,
             sentence_speed=config.sentence_pronunciation_speed,
             vocabulary_speed=config.vocabulary_pronunciation_speed,
+            repeat_original=config.repeat_original_sentence_after_translated,
         )
 
     def get_result_mfa_audio(self) -> 'AudioSegment':

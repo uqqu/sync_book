@@ -30,6 +30,16 @@
           {% endif %}
         </voice>
       </s>
+      {% if repeat_original %}
+        <break strength="strong"/>
+        <s>
+          {% if sentence_speed != 1 %}
+            <prosody rate="{{ (sentence_speed * 100) | int }}%">{{ sentence }}</prosody>
+          {% else %}
+            {{ sentence }}
+          {% endif %}
+        </s>
+      {% endif %}
     {% endif %}
   </p>
   <break strength="x-strong"/>

@@ -33,6 +33,10 @@ use_translation_file = 0  # 0 – False, 1 – raw, 2 – presaved
 save_translation_to_file = True
 translation_provider = 'Argos'  # GoogleCloud, Argos
 
+# translated sentence behavior
+min_new_words_part_to_add = 4  # 1/x from len of original tokens; 0 – never add (prioritized)
+min_new_words_count_to_add = 2  # 0 – always add
+repeat_original_sentence_after_translated = True
 
 # Speech synthesis config
 speech_synth = True
