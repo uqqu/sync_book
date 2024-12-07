@@ -29,6 +29,8 @@ class TokenAligner:
     @staticmethod
     def _cosine_similarity(x: 'torch.Tensor', y: 'torch.Tensor') -> float:
         '''Calculate the cosine similarity between two embedding vectors.'''
+        if x is None or y is None:
+            return 0.0
         x = x.detach().numpy()
         y = y.detach().numpy()
         dot_product = np.dot(x, y)
