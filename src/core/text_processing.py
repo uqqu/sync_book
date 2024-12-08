@@ -1,11 +1,10 @@
 import logging
 
+import config
 import regex as re
 import spacy
 import torch
 from transformers import AutoModel, AutoTokenizer
-
-import config
 
 
 class TextProcessing:
@@ -49,21 +48,19 @@ class TextProcessing:
         while i < n:
             token = doc[i]
             cur_text = token.text.lower()
-            prev_text = doc[i - 1].text.lower() if i > 0 else ''
             next_text = doc[i + 1].text.lower() if i < n - 1 else ''
 
-            if ({'\'', '’'} & {cur_text[0], cur_text[-1]}) and i > 0:
-                spans_to_merge.append(doc[i - 1 : i + 1])
-
-            elif i < n - 1 and (
-                (cur_text == 'can' and next_text == 'not')
-                or (token.is_punct and doc[i + 1].is_punct)
+            if i < n - 1 and (
+                (token.is_punct and doc[i + 1].is_punct)
                 or (re.match(r'^\p{Sc}$', cur_text) and re.match(r'^\d{1,3}([., ]\d{2,3})*$', next_text))
-                or (re.match(r'^\p{L}+$', cur_text) and re.match(r'^n[\'’]?t$', next_text))
+                or (re.match(r'^\p{L}+$', cur_text) and re.match(r'^n[\'’]?t$', next_text))  # n't/nt
+                or (re.match(r'^\p{L}+in$', cur_text) and next_text in {'\'', '’'})  # -ing reduction
+                or (re.match(r"^(go(nn|tt)a|cannot|c['’]mon|y['’]all)$", f'{cur_text}{next_text}'))
+                or (re.match(r'^[\'’](?!(em|cause|bout|til|fore|tis|twas|gin)\b)\p{L}+$', next_text))
             ):
                 spans_to_merge.append(doc[i : i + 2])
 
-            elif 0 < i < n - 1 and re.match(r'^\p{L}-\p{L}$', f'{prev_text[-1]}{cur_text}{next_text[0]}'):
+            elif 0 < i < n - 1 and re.match(r'^\p{L}-\p{L}$', f'{doc[i - 1].text[-1]}{cur_text}{next_text[0]}'):
                 start = i - 1
                 end = i + 2
                 while end < n - 1 and re.match(r'^-\p{L}$', f'{doc[end].text}{doc[end + 1].text[0]}'):
