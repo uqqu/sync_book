@@ -1,0 +1,18 @@
+<emphasis level="moderate">
+  {% if vocabulary_speed != 1 or pitch or volume %}
+    <prosody
+      {% if vocabulary_speed != 1 %} rate="{{ (vocabulary_speed * 100) | int }}%"{% endif %}
+      {% if pitch %} pitch="{{ pitch }}"{% endif %}
+      {% if volume %} volume="{{ volume }}"{% endif %}
+    >
+  {% endif %}
+    {% for src, trg in result %}
+      {{ src }}
+      {% if vocab_inner_break %}<break time="{{ vocab_inner_break | int }}ms"/>{% endif %}
+      -<voice name="{{ trg_voice }}">
+        {{ trg }}
+      </voice>
+      {% if not loop.last and vocab_outer_break %}<break time="{{ vocab_outer_break | int }}ms"/>{% endif %}
+    {% endfor %}
+  {% if vocabulary_speed != 1 or pitch or volume %}</prosody>{% endif %}
+</emphasis>

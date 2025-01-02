@@ -1,0 +1,13 @@
+<emphasis level="moderate">
+  {% if vocabulary_speed != 1 or pitch or volume %}
+    <prosody
+      {% if vocabulary_speed != 1 %} rate="{{ (vocabulary_speed * 100) | int }}%"{% endif %}
+      {% if pitch %} pitch="{{ pitch }}"{% endif %}
+      {% if volume %} volume="{{ volume }}"{% endif %}
+    >
+  {% endif %}
+    {% if voice %}<voice name="{{ voice }}">{% endif %}
+      {{ voc_text }}
+    {% if voice %}</voice>{% endif %}
+  {% if vocabulary_speed != 1 or pitch or volume %}</prosody>{% endif %}
+</emphasis>

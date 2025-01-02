@@ -1,0 +1,7 @@
+{% if sentence_speed != 1 %}
+  <prosody rate="{{ (sentence_speed * 100) | int }}%">
+{% endif %}
+  {% for word in src_sentence %}
+    {{ word }}{% if not loop.last %} {% endif %}
+  {% endfor %}
+{% if sentence_speed != 1 %}</prosody>{% endif %}

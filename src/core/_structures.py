@@ -1,6 +1,78 @@
-import regex as re
+import logging
+import pickle
+from dataclasses import dataclass
 
 import config
+from regex import fullmatch
+from spacy.tokens import Token
+
+
+class StructureManager:
+    def __init__(self):
+        self.entity_counter = 0
+        self.sentence_counter = 0
+        self.lemma_dict = LemmaDict()
+        self.lemma_trie = LemmaTrie()
+        self.load_structures()
+
+    def load_structures(self) -> None:
+        '''Load structures and progress from a previously saved file.'''
+        try:
+            with open(config.root_dir / f'{config.input_storage_filename}.pkl', 'rb') as file:
+                self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter = pickle.load(file)
+            len_dict = self.lemma_dict.length()
+            logging.info(
+                'Succesfully loaded previous user structures. '
+                f'Dict {len_dict[0]} ({len_dict[1]}), Trie {self.lemma_trie.length()}.'
+            )
+            self.entity_counter = 0
+        except FileNotFoundError:
+            logging.info('Failed when attempting to load user structures.')
+
+    def save_structures(self) -> None:
+        '''Save structures and progress to a file for future reuse. Keep the previous version, if it exists.'''
+        filepath = config.root_dir / f'{config.output_storage_filename}.pkl'
+        if filepath.exists():
+            old_filepath = filepath.with_suffix('.pkl.old')
+            if old_filepath.exists():
+                old_filepath.unlink()
+            filepath.rename(old_filepath)
+
+        with open(filepath, 'wb') as file:
+            pickle.dump((self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter), file)
+
+    def print_structures(self) -> None:
+        '''Representation of the structures for debug and control.'''
+
+        def _print_trie(elem: dict[str, LemmaTrie | Entity], spaces: int = 0) -> None:
+            for word, child in elem.items():
+                if isinstance(child, LemmaTrie):
+                    print(f'{" " * spaces}{word}')
+                    _print_trie(child.children, spaces + len(word) + 1)
+                else:
+                    print(f'{" " * spaces}{child.translation=} {child.level=} {child.last_pos=}')
+
+        print('-> Trie:')
+        _print_trie(self.lemma_trie.children)
+
+        print('-> Dict')
+        for lemma, child in self.lemma_dict.children.items():
+            print(lemma)
+            spaces = len(lemma)
+            for form, entity in child.children.items():
+                print(' ' * spaces, form, entity.translation, entity.level, entity.last_pos)
+
+
+@dataclass
+class UserToken:
+    '''Custom token class for exporting from draft or transforming from spacy tokens.'''
+
+    text: str
+    lemma_: str
+    index: int
+    position: int
+    is_punct: bool
+    audio: slice | int | None = None
 
 
 class BaseNode:
@@ -12,90 +84,96 @@ class BaseNode:
         self.level = 0
 
     def check_repeat(self, position: int) -> bool:
-        '''Check the necessary distance to repeat (reinforce) both the lemma and the wordform.'''
+        '''Check the necessary distance to repeat (reinforce) both the lemma and the word form.'''
         if not self.level:
             return True
         return self.intervals[self.level] < position - self.last_pos
 
     def update(self, new_pos: int) -> None:
-        '''Update repeat distance.'''
+        '''Update the repetition distance.'''
         self.level += 1
         self.last_pos = new_pos
 
 
 class Entity(BaseNode):
-    '''Leaf for LemmaDict and LemmaTrie that stores translation and it repeat distance.'''
+    '''A leaf for LemmaDict and LemmaTrie that stores translation and it repetition distance.'''
 
     def __init__(self, translation: str) -> None:
         super().__init__(config.entity_intervals)
-        self.translation = translation
+        self.translation = translation.lower()
 
 
 class LemmaDict(BaseNode):
-    '''Dict structure to store single lemmas with entity chlidren.
+    '''Dict structure for storing single lemmas with the entity chlidren.
 
-    Dict takes into account texts along with lemmas.
-    Root contain second level 'LemmaDict' objects by combination both source and target lemmas,
-        second level in turn contain 'Entity' objects by raw text, to separate word forms.
-    As BaseNode successor it can be checked by repeat distance.
+    Dict consider texts along with lemmas.
+    The root contains second level 'LemmaDict' objects by combination both source and target lemmas,
+        the second level, in turn, contains 'Entity' objects by raw text, to separate word forms.
+    As BaseNode successor it can be checked by repetition distance.
     '''
 
     def __init__(self) -> None:
         super().__init__(config.lemma_intervals)
         self.children: dict[str, LemmaDict | Entity] = {}
 
-    def add(self, lemma_src: str, text_src: str, lemma_trg: str, text_trg: str) -> tuple['LemmaDict', Entity]:
-        '''Add combined lemma and specific word with leaf 'Entity' for translation (w/o overwrite for all).'''
-        lemma_key = f'{lemma_src}-{lemma_trg}'
+    def add(self, src: list[Token | UserToken], trg: list[Token | UserToken]) -> tuple['LemmaDict', Entity]:
+        '''Add a combined lemma and a specific word with an 'Entity' leaf for translation (w/o overwrite for all).'''
+        src_lemma = ' '.join(s.lemma_.lower() for s in src)
+        src_text = ' '.join(s.text.lower() for s in src)
+        trg_lemma = ' '.join(t.lemma_.lower() if t.lemma_ else '' for t in trg)
+        trg_text = ' '.join(t.text.lower() for t in trg)
 
+        lemma_key = f'{src_lemma}-{trg_lemma}'.lower()
         if lemma_key not in self.children:
             self.children[lemma_key] = LemmaDict()
         lemma_obj = self.children[lemma_key]
-        ent_key = f'{text_src}-{text_trg}'
-        if ent_key not in lemma_obj.children:
-            lemma_obj.children[ent_key] = Entity(text_trg)
 
-        return lemma_obj, lemma_obj.children[ent_key]
+        ent_key = f'{src_text}-{trg_text}'.lower()
+        if ent_key not in lemma_obj.children:  # type: ignore
+            lemma_obj.children[ent_key] = Entity(trg_text)  # type: ignore
+
+        return lemma_obj, lemma_obj.children[ent_key]  # type: ignore
 
     def length(self) -> tuple[int, int]:
-        '''Get count of lemmas and their entities.'''
-        return len(self.children), sum(len(x.children) for x in self.children.values())
+        '''Get the count of lemmas and their entities.'''
+        return len(self.children), sum(len(x.children) for x in self.children.values())  # type: ignore
 
 
 class LemmaTrie:
-    '''Trie structure to store chain of lemmas for idioms and expressions.
+    '''A trie structure for storing a chain of lemmas for idioms and expressions.
 
-    Path from root to leaf in trie takes in account only source lemmas.
-    Leaf 'Entity' used only to store translation (always) and repeat distance.
+    The path from root to leaf in trie only considers the source lemmas.
+    The 'Entity' leaf is only used to store the translation (always) and the repetition distance.
     '''
 
     def __init__(self) -> None:
         self.children: dict[str, LemmaTrie | Entity] = {}
 
-    def search(self, tokens: list['Token'], depth: int = 0, punct_tail: int = 0) -> tuple[Entity | None, int]:
-        '''Search the deepest leaf by the given list of tokens, if it possible.
+    def search(self, tokens: list[Token | UserToken], depth=0, punct_tail=0) -> tuple[Entity | None, int]:
+        '''Search for the deepest leaf on a given list of tokens, if possible.
 
-        Return 'Entity' and it depth from original list of tokens.
+        Return 'Entity' and its depth from the source token list.
         '''
         if not tokens:
-            return None, 0
-        token = tokens.pop(0)
-        if not re.match(config.word_pattern, token.text):
-            return self.search(tokens, depth + 1, punct_tail + 1)
-        if child := self.children.get(token.lemma_):
-            child = child.search(tokens, depth + 1)
-        return child if child and child[0] else (self.children.get('#'), depth - punct_tail)
+            return self.children.get('#'), depth - punct_tail - 1  # type: ignore
+        if not fullmatch(config.word_pattern, tokens[0].text):
+            return self.search(tokens[1:], depth + 1, punct_tail + 1)
+        if child := self.children.get(tokens[0].lemma_.lower()):
+            child = child.search(tokens[1:], depth + 1)  # type: ignore
+        return child if child and child[0] else (self.children.get('#'), depth - punct_tail)  # type: ignore
 
-    def add(self, lemmas: list[str], entity: Entity) -> Entity:
-        '''Add a chain of lemmas with a leaf entity node w/o overwrite, return leaf entity (new or old).'''
-        if not lemmas:
+    def add(self, tokens: list[Token | UserToken], entity: Entity) -> Entity:
+        '''Add a chain of lemmas with a leaf entity node w/o overwriting, return the leaf entity (new or old).'''
+        if not tokens:
             if '#' not in self.children:
                 self.children['#'] = entity
-            return self.children['#']
-        if lemmas[0] not in self.children:
-            self.children[lemmas[0]] = LemmaTrie()
-        return self.children[lemmas[0]].add(lemmas[1:], entity)
+            return self.children['#']  # type: ignore
+        if not fullmatch(config.word_pattern, tokens[0].lemma_):
+            return self.add(tokens[1:], entity)
+        if (lemma := tokens[0].lemma_.lower()) not in self.children:
+            self.children[lemma] = LemmaTrie()
+        return self.children[lemma].add(tokens[1:], entity)  # type: ignore
 
     def length(self) -> int:
-        '''Get count of all leafs.'''
+        '''Get the count of all the leaves.'''
         return sum(child.length() if isinstance(child, LemmaTrie) else 1 for child in self.children.values())

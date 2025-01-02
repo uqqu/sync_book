@@ -1,136 +1,249 @@
-﻿import logging
-import pickle
+﻿import json
+import logging
+import sys
+from dataclasses import asdict
+from os import cpu_count
 
-from core._structures import LemmaDict, LemmaTrie
-from core.sentence_processing import Sentence
-from core.synthesis import SpeechSynthesizer
-from core.text_processing import TextProcessing
-from core.translation import Translator
 from spacy.tokens import Token
 
 import config
+import core.mfa_aligner as MFAligner
+import dependencies as container
+from core._structures import UserToken
+from core.sentence_processing import Sentence
+from core.token_processing import TokenProcessing
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
-
-class DependencyContainer:
-    def __init__(self) -> None:
-        self.synthesizer = SpeechSynthesizer()
-        self.text_processor = TextProcessing()
-        self.translator = Translator(self)
-
-        try:
-            self.load_structures()
-            len_dict = self.lemma_dict.length()
-            logging.info(
-                'Succesfully loaded previous user structures. '
-                f'Dict {len_dict[0]} ({len_dict[1]}), Trie {self.lemma_trie.length()}'
-            )
-        except FileNotFoundError:
-            logging.info('Failed when attempting to load user structures.')
-            self.lemma_dict = LemmaDict()
-            self.lemma_trie = LemmaTrie()
-            self.entity_counter = 0
-            self.sentence_counter = 0
-
-    def save_structures(self) -> None:
-        '''Save structures and progress to file for future reuse. Keep previous version if exists.'''
-        if not config.save_results:
-            return
-
-        filepath = config._root_dir / f'{config.output_storage_filename}.pkl'
-        if filepath.exists():
-            old_filepath = filepath.with_suffix('.pkl.old')
-            if old_filepath.exists():
-                old_filepath.unlink()
-            filepath.rename(old_filepath)
-
-        with open(filepath, 'wb') as file:
-            pickle.dump((self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter), file)
-
-    def load_structures(self) -> None:
-        '''Load structures and progress from a previously saved file.'''
-        with open(config._root_dir / f'{config.input_storage_filename}.pkl', 'rb') as file:
-            self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter = pickle.load(file)
-
-    def print_structures(self):
-        '''Representation of the structures for debug and control.'''
-
-        def _print_trie(elem, spaces=0):
-            for word, child in elem.items():
-                if isinstance(child, LemmaTrie):
-                    print(f'{" " * spaces}{word}')
-                    _print_trie(child.children, spaces + len(word) + 1)
-                else:
-                    print(f'{" " * spaces}{child.translation=} {child.level=} {child.last_pos=}')
-
-        # lemma_trie
-        _print_trie(self.lemma_trie.children)
-        # lemma_dict
-        for lemma, child in self.lemma_dict.children.items():
-            print(lemma)
-            spaces = len(lemma)
-            for form, entity in child.children.items():
-                print(' ' * spaces, form, entity.translation, entity.level, entity.last_pos)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class Main:
     def __init__(self) -> None:
-        self.container = DependencyContainer()
-        # int: 0 – source sentence, 1 – target sentence, 2 – vocabulary, 3 – whitespaces
-        self.output_text: list[tuple[int, str | list[tuple[str, str]]]] = []
-        self.output_ssml: list[str] = ['<speak>']
-        if not Token.has_extension('embedding'):
-            Token.set_extension('embedding', default=None)
+        self.sentences: list[Sentence] = []
 
-        if config.speech_synth and config.use_mfa:
-            self.output_audio: 'AudioSegment' = self.container.synthesizer.silent(0)
-            if not Token.has_extension('audio'):
-                Token.set_extension('audio', default=self.container.synthesizer.silent(200))
+        for attr in ('embedding', 'position'):
+            if not Token.has_extension(attr):
+                Token.set_extension(attr, default=None)
 
         if config.use_mfa or config.save_translation_to_file or config.use_translation_file == 2:
-            (config._root_dir / 'temp').mkdir(exist_ok=True)
+            (config.root_dir / 'temp').mkdir(exist_ok=True)
 
-    def process(self, text: str) -> None:
-        '''Main app cycle.'''
-        sentences = self.container.text_processor.get_sentences(text)
-        # it may be changed after the sentence alignment with the literary translation
-        sentences = self.container.translator.process_sentences(sentences)
-        if config.save_translation_to_file:
-            self.container.translator.save_translation_to_file()
-        for sentence_text in sentences:
-            sentence_obj = Sentence(sentence_text, self.container.entity_counter, self.container)
-            sentence_obj.process_tokens()
-            self.container.entity_counter = sentence_obj.entity_counter
-            self.container.sentence_counter += 1
-            self.output_ssml.append(sentence_obj.get_rendered_ssml())
-            self.output_text.extend(sentence_obj.get_results())
-            if config.speech_synth and config.use_mfa:
-                self.output_audio += sentence_obj.get_result_mfa_audio() + self.container.synthesizer.silent(100)
+    def process(self) -> None:
+        self.prepare_sentences()
 
-        self.output_ssml.append('</speak>')
+        if 'draft' in config.output_types:
+            self.dump_draft()
 
-        if config.speech_synth:
-            if not config.use_mfa:
-                if config.use_ssml:
-                    self.output_audio = self.container.synthesizer.synthesize(''.join(self.output_ssml), '', 1)
-                else:
-                    self.output_audio = self.container.synthesizer.synthesize_by_parts(
-                        self.output_text, config.sentence_pronunciation_speed
+        for sent in self.sentences:
+            sent.update_positions()
+
+        if config.save_results:
+            container.structures.save_structures()
+
+        if 'text' in config.output_types:
+            print(self.get_output_text())
+
+        if 'audio' in config.output_types:
+            self.get_output_audio()
+
+    def prepare_sentences(self) -> None:
+        '''Prepare sentences on a given input type.'''
+        match config.input_type:
+            case 'raw':
+                with open(config.root_dir / 'input_text.txt', 'r', encoding='utf-8') as textfile:
+                    input_text = textfile.read()
+                logging.info('Start translating the sentences. It may take some time.')
+                sentences = container.translator.process_sentences(
+                    container.text_preprocessor.get_sentences(input_text)
+                )
+                if config.save_translation_to_file and config.use_translation_file != 2:
+                    container.translator.save_translation_to_file()
+
+                for src_text in sentences:
+                    trg_text = container.translator.get_translated_sentence(src_text)
+                    src_tokens, trg_tokens = container.text_preprocessor.get_tokens_with_embeddings(src_text, trg_text)
+                    tokens = TokenProcessing(src_tokens, trg_tokens).process()
+                    self.sentences.append(Sentence(src_text, trg_text, tokens))
+                    container.structures.sentence_counter += 1
+
+            case 'draft':
+                transform_tokens = lambda tokens: [
+                    UserToken(**{attr: token[attr] for attr in ('text', 'lemma_', 'index', 'position', 'is_punct')})
+                    for token in tokens
+                ]
+                with open(config.root_dir / 'draft.json', 'r', encoding='utf-8') as file:
+                    struct = json.load(file)
+                logging.info('Got the sentences from the draft.')
+                for sent in struct:
+                    converted_tokens = [
+                        transform_tokens(sent['src_tokens']),
+                        transform_tokens(sent['trg_tokens']),
+                        [(transform_tokens(s), transform_tokens(t), status) for s, t, status in sent['result']],
+                    ]
+                    self.sentences.append(
+                        Sentence(sent['src_text'], sent['trg_text'], converted_tokens, sent['show_translation'])
                     )
-            self.container.synthesizer.save_audio(self.output_audio, 'multilingual_output')
-        self.container.save_structures()
-        # self.container.print_structures()
+
+            case 'audio':  # TODO
+                pass
+
+            case 'video':  # TODO
+                pass
+
+            case value:
+                raise RuntimeError(f'Incorrect input_type value on config.py – "{value}".')
+
+    def dump_draft(self) -> None:
+        '''Save draft as json file for manual changes and reusing it with config.input_type = "draft".'''
+
+        def pack(tokens: list[UserToken]) -> list[dict[str, str | int | bool]]:
+            return [{k: v for k, v in asdict(token).items() if k != 'audio'} for token in tokens]
+
+        json_output = []
+        for sentence in self.sentences:
+            json_output.append(
+                {
+                    'src_text': sentence.src_text,
+                    'trg_text': sentence.trg_text,
+                    'src_tokens': pack(sentence.src_tokens),
+                    'trg_tokens': pack(sentence.trg_tokens),
+                    'show_translation': sentence.show_translation,
+                    'result': [(pack(src_res), pack(trg_res), status) for src_res, trg_res, status in sentence.result],
+                }
+            )
+        with open(config.root_dir / 'draft.json', 'w', encoding='utf-8') as file:
+            json.dump(json_output, file, ensure_ascii=False, indent=2)
+        logging.info(
+            'Sentences have been dumped into draft.json. '
+            'Now you can make direct changes and pass them as input data.'
+        )
+
+    def get_output_text(self) -> str:
+        '''Return the processed text in its final form, as it will be used for speech synthesis.'''
+        text = []
+        for sent in self.sentences:
+            stripped = sent.src_text.rstrip()
+            tail = sent.src_text[len(stripped) :]
+            text.append(stripped)
+            if sent.result:
+                res = (f'{" ".join(s.text for s in src)}–{" ".join(t.text for t in trg)}' for src, trg in sent.result)
+                text.append(f'[{", ".join(res)}]')
+            if sent.show_translation:
+                text.append(sent.trg_text)
+                if config.repeat_original_sentence_after_translated:
+                    text.append(stripped)
+            if tail:
+                text.append(tail)
+        return ' '.join(text)
+
+    def get_output_audio(self) -> None:
+        '''Synthesize and save final form of the text, according to the specified parameters.'''
+        logging.info('Start audio synthesis...')
+        if not config.reuse_synthesized and not config.use_mfa and config.use_ssml == 1:
+            # the only way to synthesize all the text at once
+            i = 0
+            rendered = []
+            for sentence in self.sentences:
+                res, i = sentence.get_full_ssml_config(i)
+                rendered.append(container.templates['full'].render(res))
+            audio = container.synthesizer.synthesize(f'<speak>{"".join(rendered)}</speak>')
+
+        else:
+            for sentence in self.sentences:
+                sentence.synthesize_sentence()
+            if config.use_mfa:
+                MFAligner.prepare_alignment(self.sentences)
+
+            audio = container.synthesizer.silent()
+            for i, sentence in enumerate(self.sentences):
+                if config.use_mfa:
+                    MFAligner.set_alignment(sentence, i)
+                container.synthesizer.synthesize_vocabulary(sentence)
+                audio += container.synthesizer.compose_output_audio(sentence)
+
+        container.synthesizer.save_audio(audio, 'multilingual_output')
+        logging.info('Final audio was generated and saved to root folder as "multilingual_output.mp3".')
+
+
+def check_config_errors():
+    '''Detect unacceptable combinations of configuration attributes.'''
+    c = config
+    errors = {
+        (c.use_mfa and c.use_ssml == 2, 'Ambiguous behavior: mfa=True; use_ssml=2. Choose only one.'),
+        (not 0.5 <= c.sentence_pronunciation_speed <= 2, 'Set sentence_pronunciation_speed in range of 0.5-2.'),
+        (not 0.5 <= c.vocabulary_pronunciation_speed <= 2, 'Set vocabulary_pronunciation_speed in range of 0.5-2.'),
+        (c.use_mfa and c.crossfade_ms > c.word_break_ms, 'A crossfade can’t be longer than a word_break.'),
+        (c.use_mfa and not c.mfa_dir, 'Empty environment variable "mfa_path".'),
+        (c.use_ssml and c.synthesis_provider != 'GoogleCloud', 'The selected synthesis provider doesn’t support ssml.'),
+    }
+
+    has_errors = False
+    for condition, message in errors:
+        if condition:
+            print(f'[‽] Error: {message}')
+            has_errors = True
+    if has_errors:
+        raise RuntimeError('Config validation failed due to errors!')
+
+
+def check_config_warnings():
+    '''Detect of possibly undesirable combinations of configuration attributes.'''
+    c = config
+    warnings = {
+        (
+            c.output_types == {'draft'} and c.save_results,
+            'You set only draft as output with save_results as True. Perhaps you would like to not save '
+            'the result without other outputs?',
+        ),
+        (
+            c.synthesis_provider == 'GoogleCloud' and not c.google_cloud_project_id,
+            'Empty environment variable "GCP_ID". Long synthesis (segments >5000b) will end in an error.',
+        ),
+        (
+            c.synthesis_provider == 'GoogleCloud' and not c.google_cloud_project_location,
+            'Empty environment variable "GCP_location". Long synthesis (segments >5000b) will end in an error.',
+        ),
+        (
+            not c.reuse_synthesized and c.use_ssml == 2,
+            'You specify timestamped ssml synthesis without reusing tokens. It can be really voluminous '
+            'for quotas. If you are not sure you need timestamps, abort the run and change the configuration.',
+        ),
+        (
+            c.use_mfa and c.mfa_num_jobs < cpu_count() >> 1,
+            f'You can specify a higher value on mfa_num_jobs to speed up the process (up to {cpu_count()}).',
+        ),
+        (
+            not c.min_part_of_new_words_to_add,
+            'You have set min_part_of_new_words_to_add to 0. Translated sentences will never be displayed.',
+        ),
+        (
+            c.min_part_of_new_words_to_add and not c.min_count_of_new_words_to_add,
+            'You have set min_count_of_new_words_to_add to 0. Each sentence will be accompanied by a translation.',
+        ),
+        (
+            c.reuse_synthesized and c.use_ssml and c.sentence_pronunciation_speed != c.vocabulary_pronunciation_speed,
+            'reuse_synthesized+ssml with different pronunciation_speed for sentence and vocabulary leads '
+            'to manual speed changes for reused vocabulary items.',
+        ),
+        (
+            0.5 <= (c.sentence_pronunciation_speed / c.vocabulary_pronunciation_speed) <= 2,
+            'Major difference between sentence and vocabulary pronunciation speed. It can cause sound distortion.',
+        ),
+    }
+
+    has_warnings = False
+    for condition, message in warnings:
+        if condition:
+            print(f'[!] Warning: {message}')
+            has_warnings = True
+    if has_warnings and not c.ignore_warnings:
+        while (ans := input('Do you want to continue processing? [y/n]: ')) not in {'y', 'n'}:
+            continue
+        if ans == 'n':
+            sys.exit()
 
 
 if __name__ == '__main__':
+    check_config_errors()
+    check_config_warnings()
     app = Main()
-    with open(config._root_dir / 'input_text.txt', 'r', encoding='utf-8') as textfile:
-        input_text = textfile.read()
-    app.process(input_text)
-    print(
-        ' '.join(
-            x[1] if isinstance(x[1], str) else f"[{', '.join(f'{a}–{b}' for a, b in x[1])}]" for x in app.output_text
-        )
-    )
-    print(''.join(app.output_ssml))
+    app.process()

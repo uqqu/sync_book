@@ -1,166 +1,150 @@
-﻿import logging
-from itertools import dropwhile
+﻿import string
+from itertools import pairwise
 
 import config
-import regex as re
-from jinja2 import Template
+import dependencies as container
+from pydub import AudioSegment
 
-from core._structures import Entity
-from core.alignment import TokenAligner
-from core.mfa_aligner import MFAligner
+from core._structures import Entity, UserToken
 
 
 class Sentence:
-    def __init__(self, sentence: str, entity_counter: int, container: 'DependencyContainer') -> None:
-        self.sentence = sentence
-        self.container = container
-        self.translated_sentence = self.container.translator.get_translated_sentence(sentence)
-        self.entity_counter = entity_counter
+    def __init__(self, original: str, translated: str, tokens: tuple[list, ...], show_translation=None) -> None:
+        self.src_text = original
+        self.trg_text = translated
 
-        self.tokens_src = container.text_processor.get_merged_tokens(self.sentence, lang=config.source_lang)
-        self.tokens_trg = container.text_processor.get_merged_tokens(self.translated_sentence, lang=config.target_lang)
-        logging.info(f'{self.tokens_src=}, {self.tokens_trg=}')
-        container.text_processor.add_tokens_embeddings(self.sentence, self.tokens_src)
-        container.text_processor.add_tokens_embeddings(self.translated_sentence, self.tokens_trg)
+        self.src_tokens: list[UserToken] = tokens[0]
+        self.trg_tokens: list[UserToken] = tokens[1]
+        self.result: (
+            list[tuple[list[UserToken], list[UserToken], bool | None]] | list[tuple[list[UserToken], list[UserToken]]]
+        ) = tokens[2]
 
-        self.aligner = TokenAligner(self.tokens_src, self.tokens_trg)
-        with open(config._root_dir / 'src' / 'templates' / 'template.min.ssml', 'r', encoding='utf-8') as file:
-            self.template = Template(file.read())
-
-        self.mfa_aligner = MFAligner(self)
-
-        self.result: list[tuple[str, str]] = []
-        self.skip: set['Token'] = set()
-
-    def process_tokens(self) -> None:
-        for idx_src, token_src in enumerate(self.tokens_src):
-            self.entity_counter += 1
-            logging.debug(f'Processing token: {token_src}')
-            if token_src in self.skip:  # skip token if it has already been processed
-                logging.debug('Skipping previously processed token')
-            elif not re.match(config.word_pattern, token_src.text):  # skip punct w/o counting
-                self.entity_counter -= 1
-                logging.debug('Skipping punctuation')
-            elif token_src.ent_type_ in config.untranslatable_entities or 'Art' in token_src.morph.get('PronType'):
-                logging.debug(
-                    f'Skipping untranslatable entity or article: {token_src.ent_type_}'
-                    f'– {token_src.morph.get("PronType")}'
-                )
-            elif self.trie_search_and_process(idx_src):  # check multiword origin chain
-                logging.debug('Found multiword chain')
-            elif self._is_start_of_named_entity(idx_src):  # treat named entity chain and add tokens to 'skip'
-                self.add_named_entity_to_trie(idx_src)
-            elif token_src.text.lower() in config.stop_words:  # only after multiword check
-                logging.debug('Skipping stopword')
-            else:
-                seq_tokens_src, seq_tokens_trg = self.aligner.process_alignment(idx_src)
-                if not seq_tokens_src or not seq_tokens_trg:
-                    continue
-
-                if len(seq_tokens_src) == 1:
-                    self.treat_dict_entity(seq_tokens_src, seq_tokens_trg)
-                else:
-                    translation = ' '.join(token.text for token in seq_tokens_trg)
-                    entity = self.container.lemma_trie.add(
-                        [token.lemma_ for token in seq_tokens_src], Entity(translation)
-                    )
-                    self.treat_trie_entity(entity, seq_tokens_src, seq_tokens_trg)
-
-        logging.info(f'Result: {self.result}')
-
-    def trie_search_and_process(self, idx_src: int) -> bool:
-        '''Look for existing source multiword sequence in LemmaTrie.'''
-        entity, depth = self.container.lemma_trie.search(self.tokens_src[idx_src:])
-        if depth > 1:
-            self.treat_trie_entity(entity, self.tokens_src[idx_src : idx_src + depth])
-            output = ' '.join(token.text for token in self.tokens_src[idx_src : idx_src + depth])
-            logging.debug('Known multiword chain found: {output}')
-            return True
-        logging.debug('No multiword chain found')
-        return False
-
-    def _is_start_of_named_entity(self, idx_src: int) -> bool:
-        '''Detect if token is a first word from named entity chain.'''
-        return (
-            self.tokens_src[idx_src].ent_iob_ == 'B'
-            and len(self.tokens_src) > idx_src + 1
-            and self.tokens_src[idx_src + 1].ent_iob_ == 'I'
+        self.show_translation: bool = (
+            self._translation_line_condition() if show_translation is None else show_translation
         )
 
-    def add_named_entity_to_trie(self, idx_src: int) -> None:
-        '''Add named entity with it own translation.'''
-        seq_tokens = [self.tokens_src[idx_src]]
-        for forw_token in self.tokens_src[idx_src + 1 :]:
-            if forw_token.ent_iob_ != 'I':
-                break
-            seq_tokens.append(forw_token)
+    def update_positions(self) -> None:
+        '''Apply new positions to user structure after text processing or draft load step.'''
+        # cleanup rejected result pairs and simplify types
+        self.result = [res[:2] for res in self.result if res[2]]  # type: ignore
+        for src_res, trg_res in self.result:
+            pos = src_res[0].position
+            if len(src_res) > 1:  # trie
+                entity, _ = container.structures.lemma_trie.search(src_res)
+                if entity is None:
+                    # when a new path was loaded from the draft.json
+                    entity = container.structures.lemma_trie.add(src_res, Entity(' '.join(t.text for t in trg_res)))
+                entity.update(pos)
+                continue
 
-        translation = self.container.translator.translate(' '.join(token.text for token in seq_tokens))
-        entity = self.container.lemma_trie.add([token.lemma_ for token in seq_tokens], Entity(translation))
-        self.treat_trie_entity(entity, seq_tokens)
-        logging.debug(f'Named entity found and processed: {seq_tokens}')
+            lemma, entity = container.structures.lemma_dict.add(src_res, trg_res)
+            if lemma.check_repeat(pos) and entity.check_repeat(pos):
+                lemma.update(pos)
+                entity.update(pos)
 
-    def treat_dict_entity(self, tokens_src: list['Token'], tokens_trg: list['Token']) -> None:
-        '''Check and update repeat distance for both LemmaDict and it Entity child.'''
-        lemma_src = ' '.join(token.lemma_ for token in tokens_src)
-        lemma_trg = ' '.join(token.lemma_ for token in tokens_trg)
-        text_src = ' '.join(token.text.lower() for token in tokens_src)
-        text_trg = ' '.join(token.text.lower() for token in tokens_trg)
-        lemma, entity = self.container.lemma_dict.add(lemma_src, text_src, lemma_trg, text_trg)
+    def gen_62(self, start: int = 0):
+        '''Convert int to 62-base with saving previous value.'''
+        i = start
+        alphabet = f'{string.digits}{string.ascii_letters}'
+        while True:
+            num = i
+            if num == 0:
+                i += 1
+                yield '0'
+                continue
+            result = []
+            while num > 0:
+                num, rem = divmod(num, 62)
+                result.append(alphabet[rem])
+            yield ''.join(reversed(result))
+            i += 1
 
-        if lemma.check_repeat(self.entity_counter) and entity.check_repeat(self.entity_counter):
-            lemma.update(self.entity_counter)
-            entity.update(self.entity_counter)
-            self.result.append((' '.join(token.text.lower() for token in tokens_src), entity.translation))
-            self.mfa_aligner.append_mfa_audio_to_output(tokens_src, tokens_trg)
-        self.skip |= set(tokens_src)
+    def get_full_ssml_config(self, idx=0) -> tuple[dict, int]:
+        '''Get the necessary dict values to render sentence with ssml jinja template. Add last <mark> pos value.'''
+        src_sentence = self.get_sentence_ssml_config(True, idx)
+        idx += len(self.src_tokens)
+        result = self.get_vocabulary_ssml_config(idx)
+        idx += len(self.result) * 2
+        trg_sentence = self.get_sentence_ssml_config(False, idx)
+        idx += len(self.trg_tokens)
+        additional = {
+            'sent_break': config.break_between_sentences_ms,
+            'repeat_original': config.repeat_original_sentence_after_translated,
+        }
+        if config.repeat_original_sentence_after_translated:
+            additional |= {f'{k}_extra': v for k, v in self.get_sentence_ssml_config(True, idx).items()}
+            idx += len(self.src_tokens)
+        return (src_sentence | trg_sentence | result | additional), idx
 
-    def treat_trie_entity(self, entity: Entity, tokens_src: list['Token'], tokens_trg=None) -> None:
-        '''Check and update repeat distance for Entity (as LemmaTrie leaf).'''
-        if entity.check_repeat(self.entity_counter):
-            entity.update(self.entity_counter)
-            self.result.append((' '.join(token.text.lower() for token in tokens_src), entity.translation))
-            self.mfa_aligner.append_mfa_audio_to_output(tokens_src, tokens_trg if tokens_trg else entity.translation)
-        self.skip |= set(tokens_src)
+    def get_sentence_ssml_config(self, is_src: bool, idx=0) -> dict:
+        '''Get the necessary dict values to render sentence parts (src_text, trg_text) with ssml jinja template.'''
+        tokens = self.src_tokens if is_src else self.trg_tokens
+        dummy = UserToken(
+            text='', lemma_=None, index=tokens[-1].index + len(tokens[-1].text), position=None, is_punct=True
+        )
+        words = [f'{a.text}{b.text}' if b.is_punct else a.text for a, b in pairwise(tokens + [dummy]) if not a.is_punct]
+        if config.use_ssml == 2:
+            gen = self.gen_62(idx)
+            words = [f'<mark name="{next(gen)}"/>{word}' for word in words]
+        speed = config.sentence_pronunciation_speed
+        if is_src:
+            return {'sentence_speed': speed, 'src_sentence': words}
+        return {'sentence_speed': speed, 'trg_sentence': words, 'trg_voice': config.target_voice}
 
-    @property
+    def get_vocabulary_ssml_config(self, idx=0) -> dict:
+        '''Get the necessary dict values to render vocabulary with ssml jinja template.'''
+        if config.use_ssml == 2:
+            result = []
+            gen = self.gen_62(idx)
+            joined_with_mark = lambda tokens: f'<mark name="{next(gen)}"/>{" ".join(token.text for token in tokens)}'
+            for src_res, trg_res in self.result:  # type: ignore
+                result.append((joined_with_mark(src_res), joined_with_mark(trg_res)))
+        else:
+            result = [(' '.join(s.text for s in src), ' '.join(t.text for t in trg)) for src, trg in self.result]
+
+        res = {
+            'vocabulary_speed': config.vocabulary_pronunciation_speed,
+            'vocab_inner_break': config.break_in_vocabulary_ms,
+            'vocab_outer_break': config.break_between_vocabulary_ms,
+            'trg_voice': config.target_voice,
+            'pitch': config.ssml_vocabulary_pitch,
+            'volume': config.ssml_vocabulary_volume,
+            'result': result,
+        }
+        return res
+
+    def synthesize_sentence(self) -> None:
+        def approximately_arrange_audio_tokens(tokens: list[UserToken], sent_audio: AudioSegment) -> None:
+            '''Approximately set audio slice for unspecified tokens.'''
+            # TODO? can be improved
+            denom = sum(len(token.text) for token in tokens) * (len(sent_audio) - config.final_silence_of_sentences_ms)
+            prev = 0
+            for token in tokens:
+                token.audio = slice(prev, prev + len(token.text) / denom)
+                prev = token.audio.stop
+
+        src_words = [t for t in self.src_tokens if not t.is_punct]
+        trg_words = [t for t in self.trg_tokens if not t.is_punct]
+        result = container.synthesizer.synthesize_sentence(self)
+        if isinstance(result[0], AudioSegment):
+            (self.src_audio, self.trg_audio) = result
+            approximately_arrange_audio_tokens(src_words, self.src_audio)
+            approximately_arrange_audio_tokens(trg_words, self.trg_audio)
+            return
+
+        (self.src_audio, src_ts), (self.trg_audio, trg_ts) = result
+        for words, ts, main_audio in ((src_words, src_ts, self.src_audio), (trg_words, trg_ts, self.trg_audio)):
+            for token, (start, end) in zip(words, pairwise(ts)):
+                token.audio = slice(start - config.start_shift_ms, end + config.end_shift_ms)
+            words[-1].audio = slice(end - config.start_shift_ms, len(main_audio) - config.final_silence_of_sentences_ms)
+
     def _translation_line_condition(self) -> bool:
         '''Rule for adding a complete sentence translation to result.'''
-        if not config.min_new_words_part_to_add:
+        if not config.min_part_of_new_words_to_add:
             return False
 
         n = len(self.result)
-        return n >= config.min_new_words_count_to_add or n >= len(self.tokens_src) // config.min_new_words_part_to_add
-
-    def get_results(self) -> list[tuple[int, str | list[tuple[str, str]]]]:
-        '''Return original and translated (if needed) sentences [0, 1], vocabulary tokens[2] and whitespace tail[3].'''
-        stripped = self.sentence.rstrip()
-        tail = self.sentence[len(stripped) :]
-        result = [(0, stripped)]
-        if self.result:
-            result.append((2, self.result))
-            if self._translation_line_condition:
-                result.append((1, self.translated_sentence))
-                if config.repeat_original_sentence_after_translated:
-                    result.append((0, stripped))
-        if tail:
-            result.append((3, tail))
-        return result
-
-    def get_rendered_ssml(self) -> str:
-        '''Return rendered ssml output for synthesis with provider that supports ssml.'''
-        if not config.use_ssml:
-            return ''
-        translated = self.translated_sentence.rstrip() if self._translation_line_condition else ''
-        return self.template.render(
-            sentence=self.sentence.rstrip(),
-            translated_sentence=translated,
-            result=self.result,
-            voice_trg=config.voice_trg,
-            sentence_speed=config.sentence_pronunciation_speed,
-            vocabulary_speed=config.vocabulary_pronunciation_speed,
-            repeat_original=config.repeat_original_sentence_after_translated,
+        return (
+            n >= config.min_count_of_new_words_to_add
+            and n >= len(self.src_tokens) // config.min_part_of_new_words_to_add
         )
-
-    def get_result_mfa_audio(self) -> 'AudioSegment':
-        return self.mfa_aligner.get_result_audio(self._translation_line_condition)
