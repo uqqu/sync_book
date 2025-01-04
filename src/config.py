@@ -15,7 +15,7 @@ save_results = True
 
 # Main
 input_type = 'raw'  # raw, draft  # TODO audio, video, fix_structures
-output_types = {'draft', 'text', 'audio'}  # draft, text, audio  # TODO csv, csv_total, video
+output_types = {'draft', 'text', 'audio', 'video'}  # draft, text, audio, video  # TODO csv, csv_total
 
 translation_provider = 'Argos'  # GoogleCloud, Argos  # TODO DeepL, Yandex
 save_translation_to_file = True
@@ -49,7 +49,7 @@ min_count_of_new_words_to_add = 2  # 0 – always add
 repeat_original_sentence_after_translated = False
 
 # Speech synthesis
-synthesis_provider = 'gTTS'  # gTTS, CoquiTTS, GoogleCloud
+synthesis_provider = 'GoogleCloud'  # gTTS, CoquiTTS, GoogleCloud
 synthesis_model = 'tts_models/multilingual/multi-dataset/xtts_v2'  # for CoquiTTS only
 source_voice = 'en-US-Wavenet-C'  # en-US-Wavenet-C, Tammie Ema  # for GC and CoquiTTS
 target_voice = 'ru-RU-Wavenet-C'  # for GC only
@@ -75,7 +75,7 @@ use_mfa = False  # the alternative is ssml=2. Don't use them together
 mfa_dir = getenv('mfa_path')  # …/MFA/pretrained_models/
 mfa_num_jobs = int((cpu_count() or 1) // 1.2)  # you can set your own value as an integer
 
-use_ssml = 1  # currently only works with GC
+use_ssml = 2  # currently only works with GC
 # 0 – False; 1 – standard; 2 – with timestamps (to reuse pronunciation and more correct video captions)
 reuse_synthesized = False  # works correctly only when use_mfa=True xor use_ssml=2
 
@@ -86,6 +86,16 @@ ssml_vocabulary_volume = '-5dB'  # '' | '{sign}{int}dB' | 'silent'/'x-soft'/'sof
 # works only with reuse_synthesized=False and use_ssml in {1, 2}
 # if you set the vocabulary speed to 1 and both pitch and volume to '', the <prosody> tag in ssml for vocabulary
 # …will be ommited; same for sentence speed only in ssml for sentences. Can be used to limit economy
+
+# Video
+caption_font = 'C:/Windows/Fonts/arial.ttf'
+video_width = 1800
+video_height = 1200
+font_size = 36
+line_height = 30
+bottom_margin = 50
+margin_between_original_and_translation = 50
+
 
 
 # _Inner

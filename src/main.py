@@ -42,8 +42,17 @@ class Main:
         if 'text' in config.output_types:
             print(self.get_output_text())
 
-        if 'audio' in config.output_types:
-            self.get_output_audio()
+        if 'audio' in config.output_types or 'video' in config.output_types:
+            audio = self.get_output_audio()
+            container.synthesizer.save_audio(audio, 'multilingual_output')
+            logging.info('Final audio was generated and saved to root folder as "multilingual_output.mp3".')
+
+        if 'video' in config.output_types:
+            for sentence in self.sentences:
+                container.video.append_sentence_to_clips(sentence)
+            video = container.video.compose_clips()
+            container.video.save_video(video, 'video_output')
+            logging.info('Final video was generated and saved to root folder as "video_output.mp4".')
 
     def prepare_sentences(self) -> None:
         '''Prepare sentences on a given input type.'''
@@ -96,7 +105,7 @@ class Main:
         '''Save draft as json file for manual changes and reusing it with config.input_type = "draft".'''
 
         def pack(tokens: list[UserToken]) -> list[dict[str, str | int | bool]]:
-            return [{k: v for k, v in asdict(token).items() if k != 'audio'} for token in tokens]
+            return [{k: v for k, v in asdict(token).items() if k not in {'audio', 'segments'}} for token in tokens]
 
         json_output = []
         for sentence in self.sentences:
@@ -135,7 +144,7 @@ class Main:
                 text.append(tail)
         return ' '.join(text)
 
-    def get_output_audio(self) -> None:
+    def get_output_audio(self) -> 'AudioSegment':
         '''Synthesize and save final form of the text, according to the specified parameters.'''
         logging.info('Start audio synthesis...')
         if not config.reuse_synthesized and not config.use_mfa and config.use_ssml == 1:
@@ -160,8 +169,7 @@ class Main:
                 container.synthesizer.synthesize_vocabulary(sentence)
                 audio += container.synthesizer.compose_output_audio(sentence)
 
-        container.synthesizer.save_audio(audio, 'multilingual_output')
-        logging.info('Final audio was generated and saved to root folder as "multilingual_output.mp3".')
+        return audio
 
 
 def check_config_errors():
@@ -225,7 +233,7 @@ def check_config_warnings():
             'to manual speed changes for reused vocabulary items.',
         ),
         (
-            0.5 <= (c.sentence_pronunciation_speed / c.vocabulary_pronunciation_speed) <= 2,
+            not 0.5 <= (c.sentence_pronunciation_speed / c.vocabulary_pronunciation_speed) <= 2,
             'Major difference between sentence and vocabulary pronunciation speed. It can cause sound distortion.',
         ),
     }

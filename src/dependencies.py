@@ -6,6 +6,7 @@ from core._structures import StructureManager
 from core.synthesis import SpeechSynthesizer
 from core.text_preprocessing import TextPreprocessing
 from core.translation import Translator
+from core.video import Video
 
 
 def __getattr__(name):
@@ -34,9 +35,10 @@ def _create_templates():
 _cache: dict = {}
 
 _factories = {
-    'translator': Translator,
-    'synthesizer': SpeechSynthesizer,
     'text_preprocessor': TextPreprocessing,
+    'translator': Translator,
     'structures': StructureManager,
+    'synthesizer': SpeechSynthesizer,
+    'video': Video,
     'templates': _create_templates,
 }

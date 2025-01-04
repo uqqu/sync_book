@@ -206,7 +206,7 @@ class SpeechSynthesizer:
 
         if config.use_ssml == 2 and not config.reuse_synthesized:
             # full result at once
-            ssml_config, _ = sentence.get_vocabulary_ssml_config()
+            ssml_config = sentence.get_vocabulary_ssml_config()
             voc_ssml = container.templates['vocabulary'].render(ssml_config)
             voc_audio, voc_ts = self.synthesize(f'<speak>{voc_ssml}</speak>', with_timestamps=True)
             prev = None

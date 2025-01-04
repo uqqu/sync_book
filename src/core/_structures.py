@@ -1,6 +1,6 @@
 import logging
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import config
 from regex import fullmatch
@@ -73,6 +73,7 @@ class UserToken:
     position: int
     is_punct: bool
     audio: slice | int | None = None
+    segments: list = field(default_factory=list)
 
 
 class BaseNode:
