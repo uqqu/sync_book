@@ -184,63 +184,6 @@ class SpeechSynthesizer:
         trg_audio = self.synthesize(f'<speak>{trg_ssml}</speak>', with_timestamps=with_timestamps)
         return src_audio, trg_audio
 
-    def synthesize_vocabulary(self, sentence: 'Sentence') -> None:
-        '''Add separated vocabulary audio (src, trg) to every pair in sentence.result.'''
-
-        def collect_vocabulary_audio(tokens: list['UserToken'], sent_audio: AudioSegment, lang: str) -> AudioSegment:
-            '''Compose vocabulary audio from prerecognized segments from sentence audio if possible.'''
-            if not config.reuse_synthesized or any(token.audio is None for token in tokens):
-                audio = self.synthesize(' '.join(s.text for s in tokens), lang, ssml=False)
-                result_audio = self.adjust_audio_speed(audio, config.vocabulary_pronunciation_speed)
-                if len(tokens) == 1 and not tokens[0].audio:
-                    tokens[0].audio = len(result_audio)
-            else:
-                result_audio = sent_audio[tokens[0].audio.start : tokens[-1].audio.stop]
-                if (speed := config.vocabulary_pronunciation_speed / config.sentence_pronunciation_speed) < 0.5:
-                    result_audio = self.adjust_audio_speed(result_audio, 1 / config.sentence_pronunciation_speed)
-                    result_audio = self.adjust_audio_speed(result_audio, config.vocabulary_pronunciation_speed)
-                else:
-                    result_audio = self.adjust_audio_speed(result_audio, speed)
-
-            return result_audio
-
-        if config.use_ssml == 2 and not config.reuse_synthesized:
-            # full result at once
-            ssml_config = sentence.get_vocabulary_ssml_config()
-            voc_ssml = container.templates['vocabulary'].render(ssml_config)
-            voc_audio, voc_ts = self.synthesize(f'<speak>{voc_ssml}</speak>', with_timestamps=True)
-            prev = None
-            for i, (start, stop) in enumerate(pairwise(voc_ts + [len(voc_audio)])):
-                if i % 2:
-                    sentence.result[i // 2] = (*sentence.result[i // 2], voc_audio[prev], voc_audio[start:stop])
-                else:
-                    prev = slice(start, stop)
-        elif config.use_ssml:
-            for i, (src_voc_tokens, trg_voc_tokens) in enumerate(sentence.result[:]):
-                audio = []
-                for tokens, main_audio, lang, voice in (
-                    (src_voc_tokens, sentence.src_audio, config.source_lang, ''),
-                    (trg_voc_tokens, sentence.trg_audio, config.target_lang, config.target_voice),
-                ):
-                    if config.reuse_synthesized:
-                        audio.append(collect_vocabulary_audio(tokens, main_audio, lang))
-                        continue
-
-                    voc_ssml = container.templates['single_vocabulary_item'].render(
-                        vocabulary_speed=config.vocabulary_pronunciation_speed,
-                        pitch=config.ssml_vocabulary_pitch,
-                        volume=config.ssml_vocabulary_volume,
-                        voc_text=' '.join(t.text for t in tokens),
-                        voice=voice,
-                    )
-                    audio.append(self.synthesize(f'<speak>{voc_ssml}</speak>'))
-                sentence.result[i] = (*sentence.result[i], *audio)
-        else:
-            for i, (src_voc_tokens, trg_voc_tokens) in enumerate(sentence.result[:]):
-                src_voc_audio = collect_vocabulary_audio(src_voc_tokens, sentence.src_audio, config.source_lang)
-                trg_voc_audio = collect_vocabulary_audio(trg_voc_tokens, sentence.trg_audio, config.target_lang)
-                sentence.result[i] = (*sentence.result[i], src_voc_audio, trg_voc_audio)
-
     def compose_output_audio(self, sentence: 'Sentence') -> AudioSegment:
         '''Compose all audio parts of the sentence with given breaks.'''
         s_break = self.silent(config.break_between_sentences_ms)
@@ -249,11 +192,11 @@ class SpeechSynthesizer:
 
         audio = sentence.src_audio + s_break
 
-        if sentence.result:
-            result_audio = sentence.result[0][2] + vi_break + sentence.result[0][3]
-            for _, _, src_voc_audio, trg_voc_audio in sentence.result[1:]:
-                result_audio += vo_break + src_voc_audio + vi_break + trg_voc_audio
-            audio += result_audio + s_break
+        if sentence.vocabulary:
+            vocabulary_audio = sentence.vocabulary[0][2] + vi_break + sentence.vocabulary[0][3]
+            for _, _, src_voc_audio, trg_voc_audio in sentence.vocabulary[1:]:
+                vocabulary_audio += vo_break + src_voc_audio + vi_break + trg_voc_audio
+            audio += vocabulary_audio + s_break
 
         if sentence.show_translation:
             audio += sentence.trg_audio + s_break

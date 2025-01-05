@@ -86,7 +86,7 @@ class Main:
                     converted_tokens = [
                         transform_tokens(sent['src_tokens']),
                         transform_tokens(sent['trg_tokens']),
-                        [(transform_tokens(s), transform_tokens(t), status) for s, t, status in sent['result']],
+                        [(transform_tokens(s), transform_tokens(t), status) for s, t, status in sent['vocabulary']],
                     ]
                     self.sentences.append(
                         Sentence(sent['src_text'], sent['trg_text'], converted_tokens, sent['show_translation'])
@@ -116,7 +116,9 @@ class Main:
                     'src_tokens': pack(sentence.src_tokens),
                     'trg_tokens': pack(sentence.trg_tokens),
                     'show_translation': sentence.show_translation,
-                    'result': [(pack(src_res), pack(trg_res), status) for src_res, trg_res, status in sentence.result],
+                    'vocabulary': [
+                        (pack(src_voc), pack(trg_voc), status) for src_voc, trg_voc, status in sentence.vocabulary
+                    ],
                 }
             )
         with open(config.root_dir / 'draft.json', 'w', encoding='utf-8') as file:
@@ -133,9 +135,11 @@ class Main:
             stripped = sent.src_text.rstrip()
             tail = sent.src_text[len(stripped) :]
             text.append(stripped)
-            if sent.result:
-                res = (f'{" ".join(s.text for s in src)}–{" ".join(t.text for t in trg)}' for src, trg in sent.result)
-                text.append(f'[{", ".join(res)}]')
+            if sent.vocabulary:
+                voc = (
+                    f'{" ".join(s.text for s in src)}–{" ".join(t.text for t in trg)}' for src, trg in sent.vocabulary
+                )
+                text.append(f'[{", ".join(voc)}]')
             if sent.show_translation:
                 text.append(sent.trg_text)
                 if config.repeat_original_sentence_after_translated:
@@ -147,27 +151,17 @@ class Main:
     def get_output_audio(self) -> 'AudioSegment':
         '''Synthesize and save final form of the text, according to the specified parameters.'''
         logging.info('Start audio synthesis...')
-        if not config.reuse_synthesized and not config.use_mfa and config.use_ssml == 1:
-            # the only way to synthesize all the text at once
-            i = 0
-            rendered = []
-            for sentence in self.sentences:
-                res, i = sentence.get_full_ssml_config(i)
-                rendered.append(container.templates['full'].render(res))
-            audio = container.synthesizer.synthesize(f'<speak>{"".join(rendered)}</speak>')
+        for sentence in self.sentences:
+            sentence.synthesize_sentence()
+        if config.use_mfa:
+            MFAligner.prepare_alignment(self.sentences)
 
-        else:
-            for sentence in self.sentences:
-                sentence.synthesize_sentence()
+        audio = container.synthesizer.silent()
+        for i, sentence in enumerate(self.sentences):
             if config.use_mfa:
-                MFAligner.prepare_alignment(self.sentences)
-
-            audio = container.synthesizer.silent()
-            for i, sentence in enumerate(self.sentences):
-                if config.use_mfa:
-                    MFAligner.set_alignment(sentence, i)
-                container.synthesizer.synthesize_vocabulary(sentence)
-                audio += container.synthesizer.compose_output_audio(sentence)
+                MFAligner.set_alignment(sentence, i)
+            sentence.synthesize_vocabulary()
+            audio += container.synthesizer.compose_output_audio(sentence)
 
         return audio
 
@@ -216,6 +210,11 @@ def check_config_warnings():
             'for quotas. If you are not sure you need timestamps, abort the run and change the configuration.',
         ),
         (
+            c.reuse_synthesized and c.use_ssml != 2 and not c.use_mfa,
+            'Reusing words for vocabulary without using mfa or ssml with timestamps (2) will lead to a '
+            'rather approximate evaluation of the audio segments, and will significantly affect the final sound.',
+        ),
+        (
             c.use_mfa and c.mfa_num_jobs < cpu_count() >> 1,
             f'You can specify a higher value on mfa_num_jobs to speed up the process (up to {cpu_count()}).',
         ),
@@ -228,14 +227,14 @@ def check_config_warnings():
             'You have set min_count_of_new_words_to_add to 0. Each sentence will be accompanied by a translation.',
         ),
         (
-            c.reuse_synthesized and c.use_ssml and c.sentence_pronunciation_speed != c.vocabulary_pronunciation_speed,
-            'reuse_synthesized+ssml with different pronunciation_speed for sentence and vocabulary leads '
-            'to manual speed changes for reused vocabulary items.',
-        ),
-        (
             not 0.5 <= (c.sentence_pronunciation_speed / c.vocabulary_pronunciation_speed) <= 2,
             'Major difference between sentence and vocabulary pronunciation speed. It can cause sound distortion.',
         ),
+        (
+            'video' in config.output_types and not (config.root_dir / 'background.jpg').exists(),
+            'File "background.jpg" was not found in the root project directory. Video will be generated with '
+            'solid gray background.'
+        )
     }
 
     has_warnings = False

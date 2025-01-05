@@ -6,7 +6,7 @@
       {% if volume %} volume="{{ volume }}"{% endif %}
     >
   {% endif %}
-    {% for src, trg in result %}
+    {% for src, trg in vocabulary %}
       {{ src }}
       {% if vocab_inner_break %}<break time="{{ vocab_inner_break | int }}ms"/>{% endif %}
       -<voice name="{{ trg_voice }}">

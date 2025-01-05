@@ -48,7 +48,7 @@ class TextPreprocessing:
         '''Return normalized spacy tokens with additional contextual embeddings.'''
         src_tokens = self._get_merged_tokens(self.src_nlp(src_text))
         trg_tokens = self._get_merged_tokens(self.trg_nlp(trg_text))
-        logging.info(f'{src_tokens=}, {trg_tokens=}')
+        logging.debug(f'{src_tokens=}, {trg_tokens=}')
         self._add_token_embeddings(src_text, src_tokens)
         self._add_token_embeddings(trg_text, trg_tokens)
         return src_tokens, trg_tokens

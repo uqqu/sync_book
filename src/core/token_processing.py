@@ -52,7 +52,7 @@ class TokenProcessing:
             for src, trg, status in self.result
         ]
 
-        logging.info(f'Result: {self.result}')
+        logging.debug(f'Result: {self.result}')
         return (src_tokens, trg_tokens, self.result)
 
     def _trie_search_and_process(self, idx: int) -> bool:

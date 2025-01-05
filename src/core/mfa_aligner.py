@@ -24,6 +24,7 @@ def prepare_alignment(sentences: list['Sentence']) -> None:
         ]
         subprocess.run(command, check=True)
 
+
 def set_alignment(sentence: 'Sentence', idx: int) -> None:
     '''Recognize and set word fragments to token attributes for future addition to audio output.'''
 
@@ -32,12 +33,14 @@ def set_alignment(sentence: 'Sentence', idx: int) -> None:
         segments = []
         textgrid_path = config.root_dir / 'temp' / lang / f'temp_{idx}.TextGrid'
         word_tier = read_textgrid(textgrid_path).get_tier_by_name('words')
+        end_time = 0
         for interval in word_tier.intervals:
-            if interval.text.strip():
-                start_time = max(0, interval.start_time * 1000 - config.start_shift_ms)
-                end_time = min(max_len, interval.end_time * 1000 + config.end_shift_ms)
-                segments.append({'text': interval.text, 'audio': slice(start_time, end_time)})
-
+            start_time = max(0, interval.start_time * 1000 - config.start_shift_ms)
+            if start_time != end_time:
+                segments[-1]['audio'] = slice(segments[-1]['audio'].start, start_time)
+            end_time = min(max_len, interval.end_time * 1000 + config.end_shift_ms)
+            segments.append({'text': interval.text, 'audio': slice(start_time, end_time)})
+        segments[-1]['audio'] = slice(start_time, max_len)
         return segments
 
     src_segments = _split_audio_by_alignment(len(sentence.src_audio), config.source_full_lang)
@@ -45,11 +48,8 @@ def set_alignment(sentence: 'Sentence', idx: int) -> None:
     for segments, tokens in ((src_segments, sentence.src_tokens), (trg_segments, sentence.trg_tokens)):
         s, t = 0, 0
         while s < len(segments) and t < len(tokens):
-            if segments[s]['text'] in tokens[t].text.lower():
-                if tokens[t].audio:
-                    tokens[t].audio = slice(tokens[t].audio.start, segments[s]['audio'].stop)
-                else:
-                    tokens[t].audio = segments[s]['audio']
-                s += 1
-            else:
+            if not segments[s]['text'] == tokens[t].text.lower():
                 t += 1
+                continue
+            tokens[t].audio = segments[s]['audio']
+            s += 1

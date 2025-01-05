@@ -3,8 +3,8 @@ from itertools import accumulate, chain, pairwise
 from math import ceil
 
 import config
-from moviepy import (AudioFileClip, CompositeVideoClip, ImageClip, TextClip,
-                     concatenate_videoclips, vfx)
+from moviepy import (AudioFileClip, ColorClip, CompositeVideoClip, ImageClip,
+                     TextClip, concatenate_videoclips, vfx)
 
 from core._structures import UserToken
 
@@ -104,14 +104,11 @@ class Video:
 
         apply_sentence_tokens(sentence.src_tokens)
 
-        for src, trg, *_ in sentence.result:
-            curr_dur = (src[-1].audio.stop - src[0].audio.start + trg[-1].audio.stop - trg[0].audio.start) / voc_speed
-            for token in src:
+        for src_tokens, trg_tokens, src_audio, trg_audio in sentence.vocabulary:
+            curr_dur = (len(src_audio) + len(trg_audio)) / 1000 + vi_break + vo_break
+            for token in chain(src_tokens, trg_tokens):
                 token.segments.append((self.total_duration, curr_dur))
-            self.total_duration += vi_break
-            for token in trg:
-                token.segments.append((self.total_duration, curr_dur))
-            self.total_duration += curr_dur + vo_break
+            self.total_duration += curr_dur
         self.total_duration += s_break - vo_break
 
         if sentence.show_translation:
@@ -124,11 +121,16 @@ class Video:
 
     def compose_clips(self) -> CompositeVideoClip:
         '''Final composition of all clips with background and audio (both from files).'''
-        background = (
-            ImageClip('background.jpg')
-            .resized(width=config.video_width, height=config.video_height)
-            .with_duration(self.total_duration)
-        )
+        try:
+            background = (
+                ImageClip(config.root_dir / 'background.jpg')
+                .resized(width=config.video_width, height=config.video_height)
+                .with_duration(self.total_duration)
+            )
+        except OSError:
+            background = ColorClip(size=(config.video_width, config.video_height), color=(66, 66, 66)).with_duration(
+                self.total_duration
+            )
         composite = CompositeVideoClip([background, *self.clips])
         audio_clip = AudioFileClip(config.root_dir / 'multilingual_output.wav')
         return composite.with_audio(audio_clip)
