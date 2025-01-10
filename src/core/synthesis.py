@@ -17,7 +17,7 @@ class GTTSProvider:
     def __init__(self) -> None:
         self.model = gTTS
 
-    def synthesize(self, text: str, lang: str, *_) -> AudioSegment:
+    def synthesize(self, text: str, lang: str, **_) -> AudioSegment:
         audio_buffer = BytesIO()
         tts = self.model(text=text, lang=lang)
         tts.write_to_fp(audio_buffer)
@@ -44,7 +44,7 @@ class CoquiTTSProvider:
         self.model = TTS(model_name=config.synthesis_model)
         self.voice = config.source_voice
 
-    def synthesize(self, text: str, lang: str, *_) -> AudioSegment:
+    def synthesize(self, text: str, lang: str, **_) -> AudioSegment:
         audio_buffer = BytesIO()
         self.model.tts_to_file(text=text, file_path=audio_buffer, speaker=self.voice, language=lang)
         audio_buffer.seek(0)

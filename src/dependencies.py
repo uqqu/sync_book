@@ -29,7 +29,9 @@ def _create_templates():
         names.add(file_path.stem.split('.')[0])
 
     templates_env = Environment(loader=FileSystemLoader(templates_dir))  # nosec
-    return {name: templates_env.get_template(f'{name}.min.ssml') for name in names}
+    return {name: templates_env.get_template(f'{name}.min.ssml') for name in names} | {
+        'subtitles': templates_env.get_template('subtitles.ass')
+    }
 
 
 _cache: dict = {}

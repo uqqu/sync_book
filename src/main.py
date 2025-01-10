@@ -1,8 +1,10 @@
 ﻿import json
 import logging
+import subprocess
 import sys
 from dataclasses import asdict
 from os import cpu_count
+from shutil import copy
 
 from spacy.tokens import Token
 
@@ -47,12 +49,32 @@ class Main:
             container.synthesizer.save_audio(audio, 'multilingual_output')
             logging.info('Final audio was generated and saved to root folder as "multilingual_output.mp3".')
 
+        if 'subs' in config.output_types:
+            with open(config.root_dir / 'subtitles.ass', 'w', encoding='utf-8') as subs:
+                subs.write(container.video.generate_subtitles(self.sentences))
+
         if 'video' in config.output_types:
-            for sentence in self.sentences:
-                container.video.append_sentence_to_clips(sentence)
-            video = container.video.compose_clips()
-            container.video.save_video(video, 'video_output')
-            logging.info('Final video was generated and saved to root folder as "video_output.mp4".')
+            if config.manual_subs:
+                for sentence in self.sentences:
+                    container.video.append_sentence_to_clips(sentence)
+                video = container.video.compose_clips()
+                container.video.save_video(video, 'video_output')
+                logging.info('Final video was generated and saved to root folder as "video_output.mp4".')
+            else:
+                if 'subs' in config.output_types:
+                    copy(config.root_dir / 'subtitles.ass', config.root_dir / 'src' / 'subtitles.ass')
+                else:
+                    with open(config.root_dir / 'src' / 'subtitles.ass', 'w', encoding='utf-8') as subs:
+                        subs.write(container.video.generate_subtitles(self.sentences))
+                command = (
+                    f'ffmpeg -loop 1 -i "{config.root_dir / "background.jpg"}" '
+                    f'-i "{config.root_dir / "multilingual_output.wav"}" '
+                    f'-vf "subtitles=subtitles.ass" '  # doesn’t support paths, only nearby files
+                    f'-c:v libx264 -c:a aac -shortest -preset ultrafast -pix_fmt yuv420p -y '
+                    f'"{config.root_dir / "video_output.mp4"}"'
+                )
+                subprocess.run(command, check=True)
+                (config.root_dir / 'src' / 'subtitles.ass').unlink()
 
     def prepare_sentences(self) -> None:
         '''Prepare sentences on a given input type.'''
@@ -176,6 +198,10 @@ def check_config_errors():
         (c.use_mfa and c.crossfade_ms > c.word_break_ms, 'A crossfade can’t be longer than a word_break.'),
         (c.use_mfa and not c.mfa_dir, 'Empty environment variable "mfa_path".'),
         (c.use_ssml and c.synthesis_provider != 'GoogleCloud', 'The selected synthesis provider doesn’t support ssml.'),
+        (
+            'video' in config.output_types and not c.manual_subs and not (config.root_dir / 'background.jpg').exists(),
+            'File "background.jpg" was not found in the root project directory. With ffmpeg hardsubs it’s necessary.',
+        ),
     }
 
     has_errors = False
@@ -231,10 +257,10 @@ def check_config_warnings():
             'Major difference between sentence and vocabulary pronunciation speed. It can cause sound distortion.',
         ),
         (
-            'video' in config.output_types and not (config.root_dir / 'background.jpg').exists(),
+            'video' in config.output_types and c.manual_subs and not (config.root_dir / 'background.jpg').exists(),
             'File "background.jpg" was not found in the root project directory. Video will be generated with '
-            'solid gray background.'
-        )
+            'solid gray background.',
+        ),
     }
 
     has_warnings = False

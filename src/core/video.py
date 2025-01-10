@@ -3,6 +3,7 @@ from itertools import accumulate, chain, pairwise
 from math import ceil
 
 import config
+import dependencies as container
 from moviepy import (AudioFileClip, ColorClip, CompositeVideoClip, ImageClip,
                      TextClip, concatenate_videoclips, vfx)
 
@@ -13,6 +14,17 @@ class Video:
     def __init__(self) -> None:
         self.clips = []
         self.total_duration = 0
+
+        try:
+            self.background = (
+                ImageClip(config.root_dir / 'background.jpg')
+                .resized(width=config.video_width)
+                .with_duration(self.total_duration)
+            )
+        except FileNotFoundError:
+            self.background = ColorClip(
+                size=(config.video_width, int(config.video_width / 16 * 9)), color=(66, 66, 66)
+            ).with_duration(self.total_duration)
 
     @staticmethod
     def create_text_clip(text: str, duration: float, w: int, h: int, color='white') -> TextClip:
@@ -31,6 +43,55 @@ class Video:
             .with_position((w, h))
         )
 
+    def generate_subtitles(self, sentences: list['Sentence']) -> None:
+        def format_time(seconds: float) -> str:
+            h = int(seconds // 3600)
+            m = int((seconds % 3600) // 60)
+            s = seconds % 60
+            return f'{h:01}:{m:02}:{s:05.2f}'
+
+        def get_highlighted_textline(idxs) -> str:
+            text = ''.join(
+                text if i not in idxs else f'{{\\c&H00FFFF&}}{text}{{\\c&HFFFFFF&}}'
+                for i, text in enumerate(token_texts)
+            )
+            return text.strip().replace('\n', '')
+
+        result = []
+        dummy = UserToken(text='', lemma_='', index=0, position=0, is_punct=True)
+        for sentence in sentences:
+            self.collect_segments(sentence)
+            segments = defaultdict(set)
+            token_texts = []
+            glob_i = 0
+            for b, tokens in enumerate((sentence.src_tokens, sentence.trg_tokens)):
+                for token_a, token_b in pairwise(tokens + [dummy]):
+                    for start, _ in token_a.segments:
+                        segments[start].add(glob_i)
+                    token_texts.append(f'{token_a.text} ' if not token_b.is_punct else token_a.text)
+                    glob_i += 1
+                if not b:
+                    token_texts.append('{\\fs%s}\\N\\N{\\fs%s}' % (config.font_size // 2, config.font_size))
+                    glob_i += 1
+
+            result.extend((start_time, get_highlighted_textline(idxs)) for start_time, idxs in segments.items())
+
+        result = [
+            (format_time(start), format_time(end), text)
+            for (start, text), (end, _) in pairwise(sorted(result + [(359880.0, '')]))
+        ]
+        rendered = container.templates['subtitles'].render(
+            {
+                'result': result,
+                'width': self.background.w,
+                'height': self.background.h,
+                'font_name': config.caption_font,
+                'font_size': config.font_size,
+                'bottom_margin': config.bottom_margin,
+            }
+        )
+        return rendered
+
     def append_sentence_to_clips(self, sentence: 'Sentence') -> None:
         '''Create clips with static words and highlighted versions and append them to list of clips.'''
         start_of_sentence = self.total_duration
@@ -38,7 +99,7 @@ class Video:
 
         src_lines = self.get_lines(sentence.src_text, sentence.src_tokens)
         trg_lines = self.get_lines(sentence.trg_text, sentence.trg_tokens)
-        curr_h = config.video_height - config.bottom_margin - config.margin_between_original_and_translation
+        curr_h = self.background.h - config.bottom_margin - config.margin_between_original_and_translation
         curr_h -= config.line_height * (len(src_lines) + len(trg_lines))
         widths = []
         dummy = UserToken(text='', lemma_='', index=0, position=0, is_punct=True)
@@ -87,51 +148,41 @@ class Video:
 
         def apply_sentence_tokens(tokens: list[UserToken]) -> None:
             '''Helper for basic segmentation of the full sentence.'''
+            curr_duration = self.total_duration
             for token in tokens:
                 if not token.audio:
                     continue
-                curr_dur = (token.audio.stop - token.audio.start - config.start_shift_ms - config.end_shift_ms) / 1000
-                token.segments.append((self.total_duration, curr_dur))
-                self.total_duration += curr_dur
-            self.total_duration += s_break
+                token_dur = (token.audio.stop - token.audio.start - config.start_shift_ms - config.end_shift_ms) / 1000
+                token.segments.append((curr_duration, token_dur))
+                curr_duration += token_dur
 
         s_break = config.break_between_sentences_ms / 1000
         vo_break = config.break_between_vocabulary_ms / 1000
         vi_break = config.break_in_vocabulary_ms / 1000
-        voc_speed = config.vocabulary_pronunciation_speed / config.sentence_pronunciation_speed * 1000  # with ms->s
 
         self.total_duration += sentence.src_tokens[0].audio.start / 1000 if sentence.src_tokens[0].audio else 0
 
         apply_sentence_tokens(sentence.src_tokens)
+        self.total_duration += len(sentence.src_audio) / 1000 + s_break
 
-        for src_tokens, trg_tokens, src_audio, trg_audio in sentence.vocabulary:
-            curr_dur = (len(src_audio) + len(trg_audio)) / 1000 + vi_break + vo_break
+        for i, (src_tokens, trg_tokens, src_audio, trg_audio) in enumerate(sentence.vocabulary):
+            curr_dur = (len(src_audio) + len(trg_audio)) / 1000 + vi_break + (vo_break if i else 0)
             for token in chain(src_tokens, trg_tokens):
                 token.segments.append((self.total_duration, curr_dur))
             self.total_duration += curr_dur
-        self.total_duration += s_break - vo_break
+        self.total_duration += (s_break if sentence.vocabulary else 0)
 
         if sentence.show_translation:
-            self.total_duration += sentence.trg_tokens[0].audio.start / 1000 if sentence.trg_tokens[0].audio else 0
             apply_sentence_tokens(sentence.trg_tokens)
+            self.total_duration += len(sentence.trg_audio) / 1000 + s_break
 
             if config.repeat_original_sentence_after_translated:
-                self.total_duration += sentence.src_tokens[0].audio.start / 1000 if sentence.src_tokens[0].audio else 0
                 apply_sentence_tokens(sentence.src_tokens)
+                self.total_duration += len(sentence.src_audio) / 1000 + s_break
 
     def compose_clips(self) -> CompositeVideoClip:
         '''Final composition of all clips with background and audio (both from files).'''
-        try:
-            background = (
-                ImageClip(config.root_dir / 'background.jpg')
-                .resized(width=config.video_width, height=config.video_height)
-                .with_duration(self.total_duration)
-            )
-        except OSError:
-            background = ColorClip(size=(config.video_width, config.video_height), color=(66, 66, 66)).with_duration(
-                self.total_duration
-            )
-        composite = CompositeVideoClip([background, *self.clips])
+        composite = CompositeVideoClip([self.background, *self.clips])
         audio_clip = AudioFileClip(config.root_dir / 'multilingual_output.wav')
         return composite.with_audio(audio_clip)
 

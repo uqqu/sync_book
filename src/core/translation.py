@@ -1,6 +1,7 @@
 import logging
 import pickle
 from hashlib import sha256
+from html import unescape
 
 import argostranslate.package
 import argostranslate.translate
@@ -61,7 +62,7 @@ class Translator:
     def translate(self, text: str) -> str:
         '''Delegate the translation to the chosen provider.'''
         if (text_hash := self._get_stable_hash(text)) not in self.translated:
-            self.translated[text_hash] = self.provider.translate(text)
+            self.translated[text_hash] = unescape(self.provider.translate(text))
         return self.translated[text_hash]
 
     @staticmethod

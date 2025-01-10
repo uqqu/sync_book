@@ -36,7 +36,7 @@ def set_alignment(sentence: 'Sentence', idx: int) -> None:
         end_time = 0
         for interval in word_tier.intervals:
             start_time = max(0, interval.start_time * 1000 - config.start_shift_ms)
-            if start_time != end_time:
+            if start_time != end_time and end_time:
                 segments[-1]['audio'] = slice(segments[-1]['audio'].start, start_time)
             end_time = min(max_len, interval.end_time * 1000 + config.end_shift_ms)
             segments.append({'text': interval.text, 'audio': slice(start_time, end_time)})

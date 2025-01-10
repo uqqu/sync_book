@@ -77,7 +77,7 @@ mfa_num_jobs = int((cpu_count() or 1) // 1.2)  # you can set your own value as a
 
 use_ssml = 2  # currently only works with GC
 # 0 – False; 1 – standard; 2 – with timestamps (to reuse pronunciation and more correct video captions)
-reuse_synthesized = False  # works correctly only when use_mfa=True xor use_ssml=2
+reuse_synthesized = True  # works correctly only when use_mfa=True xor use_ssml=2
 
 # ssml=1 with mfa=False and reuse=False – is the only case when synthesis is performed for the whole text at once
 
@@ -88,14 +88,14 @@ ssml_vocabulary_volume = '-5dB'  # '' | '{sign}{int}dB' | 'silent'/'x-soft'/'sof
 # …will be ommited; same for sentence speed only in ssml for sentences. Can be used to limit economy
 
 # Video
+manual_subs = False  # False = apply .ass file as hardsub on a clean background using ffmpeg.
+# …Otherwise set the text manually using moviepy. It is much longer and a bit curvier, but potentially more manageable
+video_width = 1800  # height is automatically adjusted
 caption_font = 'C:/Windows/Fonts/arial.ttf'
-video_width = 1800
-video_height = 1200
-font_size = 36
-line_height = 30
-bottom_margin = 50
-margin_between_original_and_translation = 50
-
+font_size = 40
+bottom_margin = 30
+margin_between_original_and_translation = 50  # for manual subs only. with ffmpeg we use a line with half of font_size
+line_height = 30  # for manual subs only
 
 
 # _Inner

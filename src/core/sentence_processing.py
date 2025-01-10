@@ -62,9 +62,7 @@ class Sentence:
     def get_sentence_ssml_config(self, is_src: bool, idx=0) -> dict:
         '''Get the necessary dict values to render sentence parts (src_text, trg_text) with ssml jinja template.'''
         tokens = self.src_tokens if is_src else self.trg_tokens
-        dummy = UserToken(
-            text='', lemma_=None, index=tokens[-1].index + len(tokens[-1].text), position=None, is_punct=True
-        )
+        dummy = UserToken(text='', lemma_='', index=0, position=0, is_punct=True)
         words = [f'{a.text}{b.text}' if b.is_punct else a.text for a, b in pairwise(tokens + [dummy]) if not a.is_punct]
         if config.use_ssml == 2:
             gen = self.gen_62(idx)
@@ -101,7 +99,9 @@ class Sentence:
             '''Approximately set audio slice for unspecified tokens.'''
             # TODO? can be improved
             prev = 0
-            ms_per_symb = len(sent_audio) / sum(len(token.text) for token in tokens)
+            ms_per_symb = (len(sent_audio) - config.final_silence_of_sentences_ms) / sum(
+                len(token.text) for token in tokens
+            )
             for token in tokens:
                 token.audio = slice(prev, prev + ms_per_symb * len(token.text))
                 prev = token.audio.stop
@@ -117,9 +117,17 @@ class Sentence:
 
         (self.src_audio, src_ts), (self.trg_audio, trg_ts) = result
         for words, ts, main_audio in ((src_words, src_ts, self.src_audio), (trg_words, trg_ts, self.trg_audio)):
+            if not words:
+                break
+            if len(ts) == 1:
+                words[0].audio = slice(0, len(main_audio) - config.final_silence_of_sentences_ms + config.end_shift_ms)
+                continue
             for token, (start, end) in zip(words, pairwise(ts)):
                 token.audio = slice(start - config.start_shift_ms, end + config.end_shift_ms)
-            words[-1].audio = slice(end - config.start_shift_ms, len(main_audio) - config.final_silence_of_sentences_ms)
+            words[-1].audio = slice(
+                end - config.start_shift_ms,
+                len(main_audio) - config.final_silence_of_sentences_ms + config.end_shift_ms,
+            )
 
     def synthesize_vocabulary(self) -> None:
         '''Add separated vocabulary audio (src, trg) to every pair in sentence.vocabulary.'''
@@ -184,7 +192,7 @@ class Sentence:
         if not config.min_part_of_new_words_to_add:
             return False
 
-        n = len(self.vocabulary)
+        n = sum(item[2] for item in self.vocabulary)
         return (
             n >= config.min_count_of_new_words_to_add
             and n >= len(self.src_tokens) // config.min_part_of_new_words_to_add
