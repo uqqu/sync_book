@@ -62,8 +62,7 @@ class Sentence:
     def get_sentence_ssml_config(self, is_src: bool, idx=0) -> dict:
         '''Get the necessary dict values to render sentence parts (src_text, trg_text) with ssml jinja template.'''
         tokens = self.src_tokens if is_src else self.trg_tokens
-        dummy = UserToken(text='', lemma_='', index=0, position=0, is_punct=True)
-        words = [f'{a.text}{b.text}' if b.is_punct else a.text for a, b in pairwise(tokens + [dummy]) if not a.is_punct]
+        words = [f'{t.text} ' if t.whitespace else t.text for t in tokens if not t.is_punct]
         if config.use_ssml == 2:
             gen = self.gen_62(idx)
             words = [f'<mark name="{next(gen)}"/>{word}' for word in words]
@@ -98,6 +97,8 @@ class Sentence:
         def approximately_arrange_audio_tokens(tokens: list[UserToken], sent_audio: AudioSegment) -> None:
             '''Approximately set audio slice for unspecified tokens.'''
             # TODO? can be improved
+            if not tokens:
+                return
             prev = 0
             ms_per_symb = (len(sent_audio) - config.final_silence_of_sentences_ms) / sum(
                 len(token.text) for token in tokens
@@ -147,6 +148,10 @@ class Sentence:
                     result_audio = synth.adjust_audio_speed(result_audio, config.vocabulary_pronunciation_speed)
                 else:
                     result_audio = synth.adjust_audio_speed(result_audio, speed)
+            crossfade = config.crossfade_ms
+            while crossfade > len(result_audio):
+                crossfade >>= 1
+            result_audio = result_audio.fade_in(crossfade).fade_out(crossfade)
 
             return result_audio
 

@@ -58,17 +58,16 @@ class Video:
             return text.strip().replace('\n', '')
 
         result = []
-        dummy = UserToken(text='', lemma_='', index=0, position=0, is_punct=True)
         for sentence in sentences:
             self.collect_segments(sentence)
             segments = defaultdict(set)
             token_texts = []
             glob_i = 0
             for b, tokens in enumerate((sentence.src_tokens, sentence.trg_tokens)):
-                for token_a, token_b in pairwise(tokens + [dummy]):
-                    for start, _ in token_a.segments:
+                for token in tokens:
+                    for start, _ in token.segments:
                         segments[start].add(glob_i)
-                    token_texts.append(f'{token_a.text} ' if not token_b.is_punct else token_a.text)
+                    token_texts.append(f'{token.text} ' if token.whitespace else token.text)
                     glob_i += 1
                 if not b:
                     token_texts.append('{\\fs%s}\\N\\N{\\fs%s}' % (config.font_size // 2, config.font_size))
@@ -102,14 +101,13 @@ class Video:
         curr_h = self.background.h - config.bottom_margin - config.margin_between_original_and_translation
         curr_h -= config.line_height * (len(src_lines) + len(trg_lines))
         widths = []
-        dummy = UserToken(text='', lemma_='', index=0, position=0, is_punct=True)
 
         for lines in (src_lines, trg_lines):
             for tokens in lines:  # for line in lines
                 line_w = self.create_text_clip(f'{" ".join(word.text for word in tokens)}', 0, 0, 0).w
                 widths.append([(config.video_width - line_w) // 2])
-                for word, next_word in pairwise(tokens + [dummy]):
-                    text = f'{word.text}{" " if not next_word.is_punct else ""}'
+                for word in tokens:
+                    text = f'{word.text} ' if word.whitespace else word.text
                     clip = self.create_text_clip(text, self.total_duration - start_of_sentence, widths[-1][-1], curr_h)
                     self.clips.append(clip.with_start(start_of_sentence))
                     for start, duration in word.segments:
@@ -160,8 +158,6 @@ class Video:
         vo_break = config.break_between_vocabulary_ms / 1000
         vi_break = config.break_in_vocabulary_ms / 1000
 
-        self.total_duration += sentence.src_tokens[0].audio.start / 1000 if sentence.src_tokens[0].audio else 0
-
         apply_sentence_tokens(sentence.src_tokens)
         self.total_duration += len(sentence.src_audio) / 1000 + s_break
 
@@ -170,7 +166,7 @@ class Video:
             for token in chain(src_tokens, trg_tokens):
                 token.segments.append((self.total_duration, curr_dur))
             self.total_duration += curr_dur
-        self.total_duration += (s_break if sentence.vocabulary else 0)
+        self.total_duration += s_break if sentence.vocabulary else 0
 
         if sentence.show_translation:
             apply_sentence_tokens(sentence.trg_tokens)
@@ -183,8 +179,8 @@ class Video:
     def compose_clips(self) -> CompositeVideoClip:
         '''Final composition of all clips with background and audio (both from files).'''
         composite = CompositeVideoClip([self.background, *self.clips])
-        audio_clip = AudioFileClip(config.root_dir / 'multilingual_output.wav')
+        audio_clip = AudioFileClip(config.root_dir / 'output_audio.wav')
         return composite.with_audio(audio_clip)
 
-    def save_video(self, video: CompositeVideoClip, name: str) -> None:
-        video.write_videofile(config.root_dir / f'{name}.mp4', fps=24)
+    def save_video(self, video: CompositeVideoClip) -> None:
+        video.write_videofile(config.root_dir / 'output_video.mp4', fps=24)

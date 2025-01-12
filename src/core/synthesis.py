@@ -113,12 +113,12 @@ class GoogleCloudTTSProvider:
     def _synthesize_long(self, synthesis_input, voice, audio_config) -> AudioSegment:
         '''"Long" synthesis (segment >5000b) via GC Storage.'''
         bucket = self.storage_client.bucket('sync_book')
-        blob = bucket.blob('audio_output.wav')
+        blob = bucket.blob('output_audio.wav')
         if blob.exists():
             blob.delete()
 
         parent = f'projects/{config.google_cloud_project_id}/locations/{config.google_cloud_project_location}'
-        output_gcs_uri = 'gs://sync_book/audio_output.wav'
+        output_gcs_uri = 'gs://sync_book/output_audio.wav'
         request = texttospeech.SynthesizeLongAudioRequest(
             input=synthesis_input, voice=voice, audio_config=audio_config, parent=parent, output_gcs_uri=output_gcs_uri
         )
@@ -206,5 +206,5 @@ class SpeechSynthesizer:
         return audio
 
     @staticmethod
-    def save_audio(audio: AudioSegment, name: str) -> None:
-        audio.export(config.root_dir / f'{name}.wav', format='wav')
+    def save_audio(audio: AudioSegment) -> None:
+        audio.export(config.root_dir / 'output_audio.wav', format='wav')

@@ -7,6 +7,8 @@ from tgt.io import read_textgrid
 
 def prepare_alignment(sentences: list['Sentence']) -> None:
     '''Align provided audio buffer with the given text using MFA.'''
+    if 'mfa' in config.presaved:
+        return
     src_data = [(s.src_text, s.src_audio) for s in sentences]
     trg_data = [(s.trg_text, s.trg_audio) for s in sentences]
     for data, lang in ((src_data, config.source_full_lang), (trg_data, config.target_full_lang)):
@@ -23,6 +25,10 @@ def prepare_alignment(sentences: list['Sentence']) -> None:
             *('--num_jobs', str(config.mfa_num_jobs), str(temp), dict_path, model_path, str(temp)),
         ]
         subprocess.run(command, check=True)
+
+        for temp_file in temp.iterdir():
+            if temp_file.suffix in {'.wav', '.txt'}:
+                temp_file.unlink()
 
 
 def set_alignment(sentence: 'Sentence', idx: int) -> None:

@@ -22,12 +22,10 @@ class Main:
     def __init__(self) -> None:
         self.sentences: list[Sentence] = []
 
+        (config.root_dir / 'temp').mkdir(exist_ok=True)
         for attr in ('embedding', 'position'):
             if not Token.has_extension(attr):
                 Token.set_extension(attr, default=None)
-
-        if config.use_mfa or config.save_translation_to_file or config.use_translation_file == 2:
-            (config.root_dir / 'temp').mkdir(exist_ok=True)
 
     def process(self) -> None:
         self.prepare_sentences()
@@ -44,13 +42,13 @@ class Main:
         if 'text' in config.output_types:
             print(self.get_output_text())
 
-        if 'audio' in config.output_types or 'video' in config.output_types:
+        if 'audio' in config.output_types:
             audio = self.get_output_audio()
-            container.synthesizer.save_audio(audio, 'multilingual_output')
-            logging.info('Final audio was generated and saved to root folder as "multilingual_output.mp3".')
+            container.synthesizer.save_audio(audio)
+            logging.info('Final audio was generated and saved to root folder as "output_audio.wav".')
 
         if 'subs' in config.output_types:
-            with open(config.root_dir / 'subtitles.ass', 'w', encoding='utf-8') as subs:
+            with open(config.root_dir / 'output_subtitles.ass', 'w', encoding='utf-8') as subs:
                 subs.write(container.video.generate_subtitles(self.sentences))
 
         if 'video' in config.output_types:
@@ -58,20 +56,20 @@ class Main:
                 for sentence in self.sentences:
                     container.video.append_sentence_to_clips(sentence)
                 video = container.video.compose_clips()
-                container.video.save_video(video, 'video_output')
-                logging.info('Final video was generated and saved to root folder as "video_output.mp4".')
+                container.video.save_video(video)
+                logging.info('Final video was generated and saved to root folder as "output_video.mp4".')
             else:
-                if 'subs' in config.output_types:
-                    copy(config.root_dir / 'subtitles.ass', config.root_dir / 'src' / 'subtitles.ass')
+                if 'subs' in config.output_types or 'audio' in config.presaved:
+                    copy(config.root_dir / 'output_subtitles.ass', config.root_dir / 'src' / 'subtitles.ass')
                 else:
                     with open(config.root_dir / 'src' / 'subtitles.ass', 'w', encoding='utf-8') as subs:
                         subs.write(container.video.generate_subtitles(self.sentences))
                 command = (
                     f'ffmpeg -loop 1 -i "{config.root_dir / "background.jpg"}" '
-                    f'-i "{config.root_dir / "multilingual_output.wav"}" '
+                    f'-i "{config.root_dir / "output_audio.wav"}" '
                     f'-vf "subtitles=subtitles.ass" '  # doesn’t support paths, only nearby files
                     f'-c:v libx264 -c:a aac -shortest -preset ultrafast -pix_fmt yuv420p -y '
-                    f'"{config.root_dir / "video_output.mp4"}"'
+                    f'"{config.root_dir / "output_video.mp4"}"'
                 )
                 subprocess.run(command, check=True)
                 (config.root_dir / 'src' / 'subtitles.ass').unlink()
@@ -79,15 +77,14 @@ class Main:
     def prepare_sentences(self) -> None:
         '''Prepare sentences on a given input type.'''
         match config.input_type:
-            case 'raw':
+            case 'text':
                 with open(config.root_dir / 'input_text.txt', 'r', encoding='utf-8') as textfile:
                     input_text = textfile.read()
                 logging.info('Start translating the sentences. It may take some time.')
                 sentences = container.translator.process_sentences(
                     container.text_preprocessor.get_sentences(input_text)
                 )
-                if config.save_translation_to_file and config.use_translation_file != 2:
-                    container.translator.save_translation_to_file()
+                container.translator.save_translation_to_file()
 
                 for src_text in sentences:
                     trg_text = container.translator.get_translated_sentence(src_text)
@@ -97,10 +94,8 @@ class Main:
                     container.structures.sentence_counter += 1
 
             case 'draft':
-                transform_tokens = lambda tokens: [
-                    UserToken(**{attr: token[attr] for attr in ('text', 'lemma_', 'index', 'position', 'is_punct')})
-                    for token in tokens
-                ]
+                attrs = ('text', 'lemma_', 'index', 'position', 'is_punct', 'whitespace')
+                transform_tokens = lambda tokens: [UserToken(**{a: token[a] for a in attrs}) for token in tokens]
                 with open(config.root_dir / 'draft.json', 'r', encoding='utf-8') as file:
                     struct = json.load(file)
                 logging.info('Got the sentences from the draft.')
@@ -195,12 +190,25 @@ def check_config_errors():
         (c.use_mfa and c.use_ssml == 2, 'Ambiguous behavior: mfa=True; use_ssml=2. Choose only one.'),
         (not 0.5 <= c.sentence_pronunciation_speed <= 2, 'Set sentence_pronunciation_speed in range of 0.5-2.'),
         (not 0.5 <= c.vocabulary_pronunciation_speed <= 2, 'Set vocabulary_pronunciation_speed in range of 0.5-2.'),
-        (c.use_mfa and c.crossfade_ms > c.word_break_ms, 'A crossfade can’t be longer than a word_break.'),
         (c.use_mfa and not c.mfa_dir, 'Empty environment variable "mfa_path".'),
         (c.use_ssml and c.synthesis_provider != 'GoogleCloud', 'The selected synthesis provider doesn’t support ssml.'),
         (
-            'video' in config.output_types and not c.manual_subs and not (config.root_dir / 'background.jpg').exists(),
+            'video' in c.output_types and not c.manual_subs and not (c.root_dir / 'background.jpg').exists(),
             'File "background.jpg" was not found in the root project directory. With ffmpeg hardsubs it’s necessary.',
+        ),
+        (
+            'audio' in c.presaved
+            and 'video' in c.output_types
+            and (not (c.root_dir / 'output_audio.wav').exists() or not (c.root_dir / 'output_subtitles.ass').exists()),
+            'Audio reusing requires audio and subs files from previous generation in the root project directory.',
+        ),
+        (
+            'audio' in c.presaved and 'video' in c.output_types and c.manual_subs,
+            'Audio cannot be reused with manual_subs=True.',
+        ),
+        (
+            'audio' in c.presaved and ('subs' in c.output_types or 'audio' in c.output_types),
+            'You should exclude audio and subs from output if you want to use presaved audio.',
         ),
     }
 
@@ -257,7 +265,7 @@ def check_config_warnings():
             'Major difference between sentence and vocabulary pronunciation speed. It can cause sound distortion.',
         ),
         (
-            'video' in config.output_types and c.manual_subs and not (config.root_dir / 'background.jpg').exists(),
+            'video' in c.output_types and c.manual_subs and not (c.root_dir / 'background.jpg').exists(),
             'File "background.jpg" was not found in the root project directory. Video will be generated with '
             'solid gray background.',
         ),

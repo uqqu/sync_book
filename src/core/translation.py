@@ -56,7 +56,7 @@ class Translator:
             case value:
                 raise ValueError(f'Unknown translation_provider value ({value}).')
 
-        if config.use_translation_file == 1:
+        if config.align_with_translation_file:
             self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
     def translate(self, text: str) -> str:
@@ -70,23 +70,24 @@ class Translator:
         '''Get stable hash for the same sentences between sessions.'''
         return sha256(text.encode('utf-8')).hexdigest()
 
-    def process_sentences(self, sentences: list[str]) -> list[str]:
+    def process_sentences(self, src_sentences: list[str]) -> list[str]:
         '''Process all sentences according to current config rules. Return possibly changed list of sentences.'''
-        match config.use_translation_file:
-            case 0:
-                self.translated = {self._get_stable_hash(src): self.translate(src.rstrip()) for src in sentences}
-            case 1:
-                src_sentences, trg_sentences = self.get_literary_translation_from_file(sentences)
-                self.translated = {self._get_stable_hash(src): trg for src, trg in zip(src_sentences, trg_sentences)}
-                return src_sentences
-            case 2:
-                with open(config.root_dir / 'temp' / 'translation.pkl', 'rb') as file:
-                    self.translated = pickle.load(file)  # nosec
-        return sentences
+        if 'translation' in config.presaved:
+            with open(config.root_dir / 'temp' / 'translation.pkl', 'rb') as file:
+                self.translated = pickle.load(file)  # nosec
+        elif config.align_with_translation_file:
+            src_sentences, trg_sentences = self.get_literary_translation_from_file(src_sentences)
+            self.translated = {self._get_stable_hash(src): trg for src, trg in zip(src_sentences, trg_sentences)}
+        else:
+            self.translated = {self._get_stable_hash(src): self.translate(src.strip()) for src in src_sentences}
+        return src_sentences
 
     def get_translated_sentence(self, sentence: str) -> str:
         '''Return existing translation by hash of the original sentence.'''
-        return self.translated[self._get_stable_hash(sentence)]
+        try:
+            return self.translated[self._get_stable_hash(sentence)]
+        except KeyError:
+            raise KeyError('[‽] Input text has been changed. It is not possible to reuse the translation.')
 
     def save_translation_to_file(self) -> None:
         '''Save the translation to reduce the number of requests to external translators.'''

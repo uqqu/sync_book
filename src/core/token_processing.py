@@ -26,7 +26,7 @@ class TokenProcessing:
             logging.debug(f'Processing token: {src_token}')
             if src_idx in self.skip:  # skip token if it has already been processed
                 logging.debug('Skipping previously processed token')
-            elif not fullmatch(config.word_pattern, src_token.text):  # skip punct w/o counting
+            elif src_token.is_punct:  # skip punct w/o counting
                 container.structures.entity_counter -= 1
                 logging.debug('Skipping punctuation')
             elif src_token.ent_type_ in config.untranslatable_entities or 'Art' in src_token.morph.get('PronType'):
@@ -64,7 +64,9 @@ class TokenProcessing:
         status = False
         if entity.check_repeat(self.src_tokens[idx]._.position):
             status = True
-        trg = [UserToken(text=entity.translation, lemma_=None, index=None, position=None, is_punct=False)]
+        trg = [
+            UserToken(text=entity.translation, lemma_=None, index=None, position=None, is_punct=False, whitespace=True)
+        ]
         self.result.append((list(range(idx, idx + depth)), trg, status))
         self.skip |= set(range(idx, idx + depth))
         logging.debug(f'Known multiword chain found: {" ".join(t.text for t in self.src_tokens[idx:idx+depth])}')
@@ -82,7 +84,9 @@ class TokenProcessing:
 
         translation = container.translator.translate(' '.join(s.text for s in seq_tokens))
         entity = container.structures.lemma_trie.add(seq_tokens, Entity(translation))
-        trg = [UserToken(text=entity.translation, lemma_=None, index=None, position=None, is_punct=False)]
+        trg = [
+            UserToken(text=entity.translation, lemma_=None, index=None, position=None, is_punct=False, whitespace=True)
+        ]
         self.result.append((list(range(idx, idx + len(seq_tokens))), trg, True))
         self.skip |= set(range(idx, idx + len(seq_tokens)))
         logging.debug(f'Named entity found and processed: {seq_tokens}')
@@ -104,9 +108,15 @@ class TokenProcessing:
 
     def _transform_tokens(self, tokens: list[Token]) -> list[UserToken]:
         '''Take necessary attributes from spacy tokens to highly controlled custom token structure.'''
-        check_punct = lambda t: not fullmatch(config.word_pattern, t.text)
         return [
-            UserToken(text=t.text, lemma_=t.lemma_, index=t.idx, position=t._.position, is_punct=check_punct(t))
+            UserToken(
+                text=t.text,
+                lemma_=t.lemma_,
+                index=t.idx,
+                position=t._.position,
+                is_punct=t.is_punct,
+                whitespace=t.whitespace_,
+            )
             for t in tokens
         ]
 

@@ -18,7 +18,7 @@ class StructureManager:
     def load_structures(self) -> None:
         '''Load structures and progress from a previously saved file.'''
         try:
-            with open(config.root_dir / f'{config.input_storage_filename}.pkl', 'rb') as file:
+            with open(config.root_dir / f'{config.storage_filename}.pkl', 'rb') as file:
                 self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter = pickle.load(file)
             len_dict = self.lemma_dict.length()
             logging.info(
@@ -31,7 +31,7 @@ class StructureManager:
 
     def save_structures(self) -> None:
         '''Save structures and progress to a file for future reuse. Keep the previous version, if it exists.'''
-        filepath = config.root_dir / f'{config.output_storage_filename}.pkl'
+        filepath = config.root_dir / f'{config.storage_filename}.pkl'
         if filepath.exists():
             old_filepath = filepath.with_suffix('.pkl.old')
             if old_filepath.exists():
@@ -72,6 +72,7 @@ class UserToken:
     index: int
     position: int
     is_punct: bool
+    whitespace: bool
     audio: slice | int | None = None
     segments: list = field(default_factory=list)
 
@@ -157,7 +158,7 @@ class LemmaTrie:
         '''
         if not tokens:
             return self.children.get('#'), depth - punct_tail - 1  # type: ignore
-        if not fullmatch(config.word_pattern, tokens[0].text):
+        if tokens[0].is_punct:
             return self.search(tokens[1:], depth + 1, punct_tail + 1)
         if child := self.children.get(tokens[0].lemma_.lower()):
             child = child.search(tokens[1:], depth + 1)  # type: ignore
@@ -169,7 +170,7 @@ class LemmaTrie:
             if '#' not in self.children:
                 self.children['#'] = entity
             return self.children['#']  # type: ignore
-        if not fullmatch(config.word_pattern, tokens[0].lemma_):
+        if tokens[0].is_punct:
             return self.add(tokens[1:], entity)
         if (lemma := tokens[0].lemma_.lower()) not in self.children:
             self.children[lemma] = LemmaTrie()

@@ -62,7 +62,7 @@ class TextPreprocessing:
         current_span = []
 
         for token in doc:
-            if not token.is_punct or token.text in {'\'', '’', '-', '–', '—'}:
+            if '\n' not in token.text and (not token.is_punct or token.text in {'\'', '’', '-', '–', '—'}):
                 current_span.append(token)
                 if not token.whitespace_:
                     continue
@@ -78,46 +78,6 @@ class TextPreprocessing:
             for span in filtered_spans:
                 retokenizer.merge(span)
 
-        return [token for token in doc if not token.is_space]
-
-    def __get_merged_tokens(self, doc: 'Doc') -> list['Token']:
-        '''Merge problematic [eng] spacy tokens for simpler synchronization with Bert tokens.'''
-        spans_to_merge = []
-        i = 0
-        n = len(doc)
-        while i < n:
-            cur_text = doc[i].text.lower()
-            next_text = doc[i + 1].text.lower() if i < n - 1 else ''
-            pattern = re.compile(
-                r'''
-                (\p{L}+(?<!do))in['’]  # -ing reduction (only for unrecognized by spacy)
-                | \p{L}+(?<!wa)n['’]?t  # n't/nt reduction
-                | ['’](tain['’]t|n|til|fore|tis|twas|gin)  # leading apostrophe
-                | (go(nn|tt)a|cannot|an['’]|\p{L}+(?<!wa)nt)  # exclusions
-                | \p{Sc}\d{1,3}([., ]\d{2,3})*  # currency check (currency symbol + digits, possibly with separators)
-                | \p{L}+(?<!in)['’](?!(em|cause|bout)\b)\p{L}+  # dialect reductions
-            ''',
-                re.X,
-            )
-
-            if i < n - 1 and (
-                (doc[i].is_punct and doc[i + 1].is_punct) or (re.fullmatch(pattern, f'{cur_text}{next_text}'))
-            ):
-                spans_to_merge.append(doc[i : i + 2])
-
-            elif 0 < i < n - 1 and re.fullmatch(r'\p{L}-\p{L}', f'{doc[i - 1].text[-1]}{cur_text}{next_text[0]}'):
-                start = i - 1
-                end = i + 2
-                while end < n - 1 and re.fullmatch(r'-\p{L}', f'{doc[end].text}{doc[end + 1].text[0]}'):
-                    end += 2
-                spans_to_merge.append(doc[start:end])
-                logging.debug(f'Adding span to merge (complex hyphenated chain): {doc[start:end]}')
-                i = end - 1
-            i += 1
-        filtered_spans = spacy.util.filter_spans(spans_to_merge)
-        with doc.retokenize() as retokenizer:
-            for span in filtered_spans:
-                retokenizer.merge(span)
         return [token for token in doc if not token.is_space]
 
     def _add_token_embeddings(self, sentence: str, spacy_tokens: list['Token']) -> None:
