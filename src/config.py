@@ -14,7 +14,7 @@ save_results = True
 
 # Main
 input_type = 'text'  # draft, text  # TODO audio, video, fix_structures, none
-output_types = {'draft', 'text', 'audio', 'subs' 'video'}  # draft, text, audio, video, subs  # TODO csv, csv_total
+output_types = {'draft', 'text', 'audio', 'subs', 'video'}  # draft, text, audio, video, subs  # TODO csv, csv_total
 presaved = {}  # translation, mfa, audio  # reuse processed data from a previous run. Use only with the same input text
 # …Reusing audio for video can be performed if the previous generation included audio and subs
 # …in this case don’t set audio and subs in output_types for current generation and set manual_subs to False.
