@@ -24,10 +24,15 @@ class Sentence:
         )
 
     def update_positions(self) -> None:
-        '''Apply new positions to user structure after text processing or draft load step.'''
-        # cleanup rejected vocabulary pairs and simplify types
-        self.vocabulary = [voc[:2] for voc in self.vocabulary if voc[2]]  # type: ignore
-        for src_voc, trg_voc in self.vocabulary:
+        '''Apply new positions to user structure after text processing or draft load; and combine token sequences.'''
+        next_src_idx = {a.index: b.index for a, b in pairwise(self.src_tokens)}
+        next_trg_idx = {a.index: b.index for a, b in pairwise(self.trg_tokens)} | {None: -1}
+        groups = []
+        prev_group = ()
+        for src_voc, trg_voc, status in self.vocabulary:
+            if not status:
+                continue
+
             pos = src_voc[0].position
             if len(src_voc) > 1:  # trie
                 entity, _ = container.structures.lemma_trie.search(src_voc)
@@ -35,12 +40,26 @@ class Sentence:
                     # when a new path was loaded from the draft.json
                     entity = container.structures.lemma_trie.add(src_voc, Entity(' '.join(t.text for t in trg_voc)))
                 entity.update(pos)
-                continue
+            else:
+                lemma, entity = container.structures.lemma_dict.add(src_voc, trg_voc)
+                if lemma.check_repeat(pos) and entity.check_repeat(pos):
+                    lemma.update(pos)
+                    entity.update(pos)
 
-            lemma, entity = container.structures.lemma_dict.add(src_voc, trg_voc)
-            if lemma.check_repeat(pos) and entity.check_repeat(pos):
-                lemma.update(pos)
-                entity.update(pos)
+            if prev_group:
+                if (
+                    src_voc[-1].index == next_src_idx[prev_group[0][-1].index]
+                    and trg_voc[-1].index == next_trg_idx[prev_group[1][-1].index]
+                ):
+                    prev_group[0].extend(src_voc)
+                    prev_group[1].extend(trg_voc)
+                    continue
+                else:
+                    groups.append(prev_group)
+            prev_group = (src_voc, trg_voc)
+        if prev_group:
+            groups.append(prev_group)
+        self.vocabulary = groups
 
     def gen_62(self, start: int = 0):
         '''Convert int to 62-base with saving previous value.'''
