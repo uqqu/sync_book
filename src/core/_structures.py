@@ -93,8 +93,9 @@ class BaseNode:
 
     def update(self, new_pos: int) -> None:
         '''Update the repetition distance.'''
-        self.level += 1
-        self.last_pos = new_pos
+        if new_pos > self.last_pos:
+            self.level += 1
+            self.last_pos = new_pos
 
 
 class Entity(BaseNode):

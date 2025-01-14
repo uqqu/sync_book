@@ -68,8 +68,8 @@ google_cloud_project_location = getenv('GCP_location')
 # Audio alignment. To reuse words from a synthesized sentence in a vocabulary or visual alignment on the video
 crossfade_ms = 50  # on the borders of each entity in vocabulary
 final_silence_of_sentences_ms = 400  # crop final silence for the last word of the sentences
-start_shift_ms = 3  # to capture a larger (or smaller) segments
-end_shift_ms = 5
+start_shift_ms = 5  # to capture a larger (or smaller) segments
+end_shift_ms = 7
 use_mfa = False  # the alternative is ssml=2. Don't use them together
 mfa_dir = getenv('mfa_path')  # …/MFA/pretrained_models/
 mfa_num_jobs = int((cpu_count() or 1) // 1.2)  # you can set your own value as an integer
@@ -89,9 +89,12 @@ ssml_vocabulary_volume = '-5dB'  # '' | '{sign}{int}dB' | 'silent'/'x-soft'/'sof
 # Video
 manual_subs = False  # False = apply .ass file as hardsub on a clean background using ffmpeg.
 # …Otherwise set the text manually using moviepy. It is much longer and a bit curvier, but potentially more manageable
+sub_colors = ('FFFFFF', '00FFFF', 'AAFFAA', 'AAAAFF')  # (main, pronounce hl, known words hl, untranslatable words hl)
+# …BGR format! For the last two you can set None to disable the highlighting of known/untranslatable words in general
+highlight_after_main_sentence = False  # highlight known/untranslatable words only after the main sentence is spoken
 video_width = 1920  # height is automatically adjusted
 caption_font = 'C:/Windows/Fonts/arial.ttf'
-font_size = 40
+font_size = 48
 bottom_margin = 30
 margin_between_original_and_translation = 50  # for manual subs only. with ffmpeg we use a line with half of font_size
 line_height = 30  # for manual subs only

@@ -50,11 +50,23 @@ class Video:
             s = seconds % 60
             return f'{h:01}:{m:02}:{s:05.2f}'
 
-        def get_highlighted_textline(idxs) -> str:
-            text = ''.join(
-                text if i not in idxs else f'{{\\c&H00FFFF&}}{text}{{\\c&HFFFFFF&}}'
-                for i, text in enumerate(token_texts)
-            )
+        def get_highlighted_textline(idxs, start_time) -> str:
+            if config.highlight_after_main_sentence and start_time < min_start + (len(sentence.src_audio) // 1000):
+                text = ''.join(
+                    f'{{\\c&H{config.sub_colors[1]}&}}{text}{{\\c&H{config.sub_colors[0]}&}}' if i in idxs else text
+                    for i, text in enumerate(token_texts)
+                )
+            else:
+                text = ''.join(
+                    f'{{\\c&H{config.sub_colors[1]}&}}{text}{{\\c&H{config.sub_colors[0]}&}}'
+                    if i in idxs
+                    else f'{{\\c&H{config.sub_colors[2]}&}}{text}{{\\c&H{config.sub_colors[0]}&}}'
+                    if i in sentence.known_src_tokens and config.sub_colors[2]
+                    else f'{{\\c&H{config.sub_colors[3]}&}}{text}{{\\c&H{config.sub_colors[0]}&}}'
+                    if i in sentence.untranslatable_src_tokens and config.sub_colors[3]
+                    else text
+                    for i, text in enumerate(token_texts)
+                )
             return text.strip().replace('\n', '')
 
         result = []
@@ -63,9 +75,11 @@ class Video:
             segments = defaultdict(set)
             token_texts = []
             glob_i = 0
+            min_start = float('inf')
             for b, tokens in enumerate((sentence.src_tokens, sentence.trg_tokens)):
                 for token in tokens:
                     for start, _ in token.segments:
+                        min_start = min(min_start, start)
                         segments[start].add(glob_i)
                     token_texts.append(f'{token.text} ' if token.whitespace else token.text)
                     glob_i += 1
@@ -73,7 +87,9 @@ class Video:
                     token_texts.append('{\\fs%s}\\N\\N{\\fs%s}' % (config.font_size // 2, config.font_size))
                     glob_i += 1
 
-            result.extend((start_time, get_highlighted_textline(idxs)) for start_time, idxs in segments.items())
+            result.extend(
+                (start_time, get_highlighted_textline(idxs, start_time)) for start_time, idxs in segments.items()
+            )
 
         result = [
             (format_time(start), format_time(end), text)

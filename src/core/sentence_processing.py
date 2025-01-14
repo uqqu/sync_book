@@ -18,6 +18,8 @@ class Sentence:
         self.vocabulary: (
             list[tuple[list[UserToken], list[UserToken], bool | None]] | list[tuple[list[UserToken], list[UserToken]]]
         ) = tokens[2]
+        self.known_src_tokens = tokens[3]
+        self.untranslatable_src_tokens = tokens[4]
 
         self.show_translation: bool = (
             self._translation_line_condition() if show_translation is None else show_translation

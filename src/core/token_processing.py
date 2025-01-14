@@ -16,6 +16,8 @@ class TokenProcessing:
         self.src_tokens = src_tokens
         self.trg_tokens = trg_tokens
         self.skip: set[int] = set()
+        self.untr: set[int] = set()
+        self.known: set[int] = set()
         self.result: list[tuple[list[int], list[int], bool]] = []
 
     def process(self) -> tuple[list[UserToken], list[UserToken], list[tuple[list[int], list[int], bool]]]:
@@ -27,9 +29,11 @@ class TokenProcessing:
             if src_idx in self.skip:  # skip token if it has already been processed
                 logging.debug('Skipping previously processed token')
             elif src_token.is_punct:  # skip punct w/o counting
+                self.untr.add(src_idx)
                 container.structures.entity_counter -= 1
                 logging.debug('Skipping punctuation')
             elif src_token.ent_type_ in config.untranslatable_entities or 'Art' in src_token.morph.get('PronType'):
+                self.untr.add(src_idx)
                 logging.debug(
                     f'Skipping untranslatable entity or article: {src_token.ent_type_}'
                     f'– {src_token.morph.get("PronType")}'
@@ -39,6 +43,7 @@ class TokenProcessing:
             elif self._add_named_entity(src_idx):  # treat named entity chain
                 logging.debug('Named entity found and processed')
             elif src_token.text.lower() in config.stop_words:  # only after multiword check
+                self.untr.add(src_idx)
                 logging.debug('Skipping stopword')
             else:
                 src_seq_idx, trg_seq_idx = TokenAligner(self.src_tokens, self.trg_tokens).process_alignment(src_idx)
@@ -53,7 +58,7 @@ class TokenProcessing:
         ]
 
         logging.debug(f'Result: {self.result}')
-        return (src_tokens, trg_tokens, self.result)
+        return (src_tokens, trg_tokens, self.result, self.known, self.untr)
 
     def _trie_search_and_process(self, idx: int) -> bool:
         '''Search for an existing source multiword sequence in LemmaTrie.'''
@@ -64,6 +69,9 @@ class TokenProcessing:
         status = False
         if entity.check_repeat(self.src_tokens[idx]._.position):
             status = True
+            entity.update(self.src_tokens[idx]._.position)
+        else:
+            self.known |= set(range(idx, idx + depth))
         trg = [
             UserToken(text=entity.translation, lemma_=None, index=None, position=None, is_punct=False, whitespace=True)
         ]
@@ -84,6 +92,7 @@ class TokenProcessing:
 
         translation = container.translator.translate(' '.join(s.text for s in seq_tokens))
         entity = container.structures.lemma_trie.add(seq_tokens, Entity(translation))
+        entity.update(self.src_tokens[idx]._.position)
         trg = [
             UserToken(text=entity.translation, lemma_=None, index=None, position=None, is_punct=False, whitespace=True)
         ]
@@ -96,13 +105,22 @@ class TokenProcessing:
         '''Add result token pairs with it output status (don’t update entity distance, it can be called for draft).'''
         status = True
         pos = self.src_tokens[src_idxs[0]]._.position
+        in_stop_words = lambda x: self.src_tokens[x].text in config.stop_words
+        src_idxs = list(dropwhile(in_stop_words, list(dropwhile(in_stop_words, src_idxs))[::-1]))[::-1]
         src_group = [self.src_tokens[i] for i in src_idxs]
         if len(src_idxs) == 1:  # o2o/o2m  # new or existing dict entity
             lemma, entity = container.structures.lemma_dict.add(src_group, [self.trg_tokens[i] for i in trg_idxs])
             if not (lemma.check_repeat(pos) and entity.check_repeat(pos)):
                 status = False
+                self.known |= set(src_idxs)
+            else:
+                lemma.update(pos)
+                entity.update(pos)
         else:  # m2m/m2o  # new trie entity
-            container.structures.lemma_trie.add(src_group, Entity(' '.join(self.trg_tokens[i].text for i in trg_idxs)))
+            entity = container.structures.lemma_trie.add(
+                src_group, Entity(' '.join(self.trg_tokens[i].text for i in trg_idxs))
+            )
+            entity.update(pos)
         self.result.append((src_idxs, trg_idxs, status))
         self.skip |= set(src_idxs)
 
@@ -115,7 +133,7 @@ class TokenProcessing:
                 index=t.idx,
                 position=t._.position,
                 is_punct=t.is_punct,
-                whitespace=t.whitespace_,
+                whitespace=bool(t.whitespace_),
             )
             for t in tokens
         ]
