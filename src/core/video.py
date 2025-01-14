@@ -14,7 +14,9 @@ class Video:
     def __init__(self) -> None:
         self.clips = []
         self.total_duration = 0
+        self.create_background_clip()
 
+    def create_background_clip(self) -> None:
         try:
             self.background = (
                 ImageClip(config.root_dir / 'background.jpg')
@@ -53,23 +55,24 @@ class Video:
         def get_highlighted_textline(idxs, start_time) -> str:
             if config.highlight_after_main_sentence and start_time < min_start + (len(sentence.src_audio) // 1000):
                 text = ''.join(
-                    f'{{\\c&H{config.sub_colors[1]}&}}{text}{{\\c&H{config.sub_colors[0]}&}}' if i in idxs else text
+                    f'{{\\c&H{colors[1]}&}}{text}{{\\c&H{colors[0]}&}}' if i in idxs else text
                     for i, text in enumerate(token_texts)
                 )
             else:
                 text = ''.join(
-                    f'{{\\c&H{config.sub_colors[1]}&}}{text}{{\\c&H{config.sub_colors[0]}&}}'
+                    f'{{\\c&H{colors[1]}&}}{text}{{\\c&H{colors[0]}&}}'
                     if i in idxs
-                    else f'{{\\c&H{config.sub_colors[2]}&}}{text}{{\\c&H{config.sub_colors[0]}&}}'
-                    if i in sentence.known_src_tokens and config.sub_colors[2]
-                    else f'{{\\c&H{config.sub_colors[3]}&}}{text}{{\\c&H{config.sub_colors[0]}&}}'
-                    if i in sentence.untranslatable_src_tokens and config.sub_colors[3]
+                    else f'{{\\c&H{colors[2]}&}}{text}{{\\c&H{colors[0]}&}}'
+                    if i in sentence.known_src_tokens and colors[2]
+                    else f'{{\\c&H{colors[3]}&}}{text}{{\\c&H{colors[0]}&}}'
+                    if i in sentence.untranslatable_src_tokens and colors[3]
                     else text
                     for i, text in enumerate(token_texts)
                 )
             return text.strip().replace('\n', '')
 
         result = []
+        colors = [f'{rgb[4:]}{rgb[2:4]}{rgb[:2]}' if rgb else None for rgb in config.sub_colors]  # bgr format
         for sentence in sentences:
             self.collect_segments(sentence)
             segments = defaultdict(set)
@@ -105,6 +108,7 @@ class Video:
                 'bottom_margin': config.bottom_margin,
             }
         )
+        self.total_duration = 0
         return rendered
 
     def append_sentence_to_clips(self, sentence: 'Sentence') -> None:
@@ -114,9 +118,9 @@ class Video:
 
         src_lines = self.get_lines(sentence.src_text, sentence.src_tokens)
         trg_lines = self.get_lines(sentence.trg_text, sentence.trg_tokens)
-        curr_h = self.background.h - config.bottom_margin - config.margin_between_original_and_translation
-        curr_h -= config.line_height * (len(src_lines) + len(trg_lines))
+        curr_h = self.background.h - config.bottom_margin - config.font_size * ((len(src_lines) + len(trg_lines)) + 1)
         widths = []
+        glob_i = 0
 
         for lines in (src_lines, trg_lines):
             for tokens in lines:  # for line in lines
@@ -124,22 +128,40 @@ class Video:
                 widths.append([(config.video_width - line_w) // 2])
                 for word in tokens:
                     text = f'{word.text} ' if word.whitespace else word.text
-                    clip = self.create_text_clip(text, self.total_duration - start_of_sentence, widths[-1][-1], curr_h)
-                    self.clips.append(clip.with_start(start_of_sentence))
+                    color = (
+                        config.sub_colors[2]
+                        if glob_i in sentence.known_src_tokens and config.sub_colors[2]
+                        else config.sub_colors[3]
+                        if glob_i in sentence.untranslatable_src_tokens and config.sub_colors[3]
+                        else config.sub_colors[0]
+                    )
+                    if not config.highlight_after_main_sentence or color == config.sub_colors[0]:
+                        clip = self.create_text_clip(
+                            text, self.total_duration - start_of_sentence, widths[-1][-1], curr_h, f'#{color}'
+                        )
+                        self.clips.append(clip.with_start(start_of_sentence))
+                    else:
+                        clip = self.create_text_clip(text, len(sentence.src_audio), widths[-1][-1], curr_h, f'#{color}')
+                        self.clips.append(clip.with_start(start_of_sentence))
+                        duration = self.total_duration - start_of_sentence - len(sentence.src_audo)
+                        clip = self.create_text_clip(text, duration, widths[-1][-1], curr_h, f'#{color}')
+                        self.clips.append(clip.with_start(start_of_sentence + len(sentence.src_audio)))
+
                     for start, duration in word.segments:
                         if not duration:
                             continue
-                        clip = self.create_text_clip(text, duration, widths[-1][-1], curr_h, 'yellow')
+                        clip = self.create_text_clip(text, duration, widths[-1][-1], curr_h, f'#{config.sub_colors[1]}')
                         self.clips.append(clip.with_start(start))
 
                     widths[-1].append(widths[-1][-1] + self.clips[-1].w)
-                curr_h += config.line_height
+                    glob_i += 1
+                curr_h += config.font_size
 
-            curr_h += config.margin_between_original_and_translation
+            curr_h += config.font_size // 2
 
     def get_lines(self, text: str, tokens: list[UserToken]) -> list[list[UserToken]]:
         '''Split a list of tokens into lines to fit them within a given width.'''
-        width = self.create_text_clip(text, 0, 0, 0).w
+        width = self.create_text_clip(text, 0, 0, 0).w / 0.8
         num_lines = ceil(width / config.video_width)
         lines = [[] for _ in range(num_lines)]
 
@@ -149,12 +171,14 @@ class Video:
         current_lengths = [0] * num_lines
         line_index = 0
 
+        prev_whitespace = True
         for token in tokens:
             new_length = current_lengths[line_index] + len(token.text) + (1 if lines[line_index] else 0)
-            if new_length > target_length and line_index < num_lines - 1:
+            if new_length > target_length and line_index < num_lines - 1 and prev_whitespace:
                 line_index += 1
             lines[line_index].append(token)
             current_lengths[line_index] += len(token.text) + (1 if lines[line_index] else 0)
+            prev_whitespace = token.whitespace
         return lines
 
     def collect_segments(self, sentence: 'Sentence') -> None:
@@ -194,6 +218,7 @@ class Video:
 
     def compose_clips(self) -> CompositeVideoClip:
         '''Final composition of all clips with background and audio (both from files).'''
+        self.create_background_clip()
         composite = CompositeVideoClip([self.background, *self.clips])
         audio_clip = AudioFileClip(config.root_dir / 'output_audio.wav')
         return composite.with_audio(audio_clip)

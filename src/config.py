@@ -89,15 +89,13 @@ ssml_vocabulary_volume = '-5dB'  # '' | '{sign}{int}dB' | 'silent'/'x-soft'/'sof
 # Video
 manual_subs = False  # False = apply .ass file as hardsub on a clean background using ffmpeg.
 # …Otherwise set the text manually using moviepy. It is much longer and a bit curvier, but potentially more manageable
-sub_colors = ('FFFFFF', '00FFFF', 'AAFFAA', 'AAAAFF')  # (main, pronounce hl, known words hl, untranslatable words hl)
-# …BGR format! For the last two you can set None to disable the highlighting of known/untranslatable words in general
+sub_colors = ('FFFFFF', 'FFFF00', 'AAFFAA', 'FFAAAA')  # (main, pronounce hl, known words hl, untranslatable words hl)
+# …For the last two you can set None to disable the highlighting of known/untranslatable words in general
 highlight_after_main_sentence = False  # highlight known/untranslatable words only after the main sentence is spoken
 video_width = 1920  # height is automatically adjusted
 caption_font = 'C:/Windows/Fonts/arial.ttf'
 font_size = 48
 bottom_margin = 30
-margin_between_original_and_translation = 50  # for manual subs only. with ffmpeg we use a line with half of font_size
-line_height = 30  # for manual subs only
 
 
 # _Inner
