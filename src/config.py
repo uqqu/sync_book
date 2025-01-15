@@ -15,8 +15,8 @@ save_results = True
 # Main
 input_type = 'text'  # draft, text  # TODO audio, video, fix_structures, none
 output_types = {'draft', 'text', 'audio', 'subs', 'video'}  # draft, text, audio, video, subs  # TODO csv, csv_total
-presaved = {}  # translation, mfa, audio  # reuse processed data from a previous run. Use only with the same input text
-# …Reusing audio for video can be performed if the previous generation included audio and subs
+presaved = {}  # translation, mfa, audio  # reuse processed data from a previous run. Use only with
+# …the same input text. Reusing audio for video can be performed if the previous generation included audio and subs
 # …in this case don’t set audio and subs in output_types for current generation and set manual_subs to False.
 
 ignore_warnings = False  # don’t stop if config warnings are detected
@@ -42,6 +42,10 @@ target_model = 'ru_core_news_lg'  # _lg has 1% better lemmatization than _sm ¯\
 embedding_preprocessing_centering = False
 embedding_aggregator = 'attention'  # Averaging, MaxPooling, MinPooling, Attention
 min_align_weight = 0.66
+vocabulary_postcombining = 2  # combine tokens for output. It runs after the draft and storage stages and only affects
+# …the output. 0 - leave as they are, 1 - combine only neighbouring, 2 - combine through stopwords and punctuation
+postcombining_max_num = 2  # max number of entities thet will be merged with the current into a single.
+# … Stopwords and punct don’t count
 
 # Translated sentence behavior
 min_part_of_new_words_to_add = 4  # 1/x from len of original tokens; 0 – never add (prioritized)

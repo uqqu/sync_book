@@ -79,7 +79,7 @@ class Main:
         match config.input_type:
             case 'text':
                 with open(config.root_dir / 'input_text.txt', 'r', encoding='utf-8') as textfile:
-                    input_text = textfile.read()
+                    input_text = textfile.read().strip()
                 logging.info('Start translating the sentences. It may take some time.')
                 sentences = container.translator.process_sentences(
                     container.text_preprocessor.get_sentences(input_text)
@@ -153,10 +153,8 @@ class Main:
             tail = sent.src_text[len(stripped) :]
             text.append(stripped)
             if sent.vocabulary:
-                voc = (
-                    f'{" ".join(s.text for s in src)}–{" ".join(t.text for t in trg)}' for src, trg in sent.vocabulary
-                )
-                text.append(f'[{", ".join(voc)}]')
+                joined = lambda x: ''.join(f'{t.text} ' if t.whitespace else t.text for t in x[:-1]) + x[-1].text
+                text.append(f'[{"; ".join(f"{joined(src)}–{joined(trg)}" for src, trg in sent.vocabulary)}]')
             if sent.show_translation:
                 text.append(sent.trg_text)
                 if config.repeat_original_sentence_after_translated:

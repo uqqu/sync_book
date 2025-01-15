@@ -5,7 +5,7 @@ from itertools import dropwhile
 import config
 import dependencies as container
 import numpy as np
-from regex import fullmatch
+from regex import match
 from spacy.tokens import Token
 
 from core._structures import Entity, UserToken
@@ -22,6 +22,7 @@ class TokenProcessing:
 
     def process(self) -> tuple[list[UserToken], list[UserToken], list[tuple[list[int], list[int], bool]]]:
         '''Process all tokens by their type and return potential group pairs to add to the translation.'''
+        aligned = TokenAligner(self.src_tokens, self.trg_tokens)
         for src_idx, src_token in enumerate(self.src_tokens):
             src_token._.position = container.structures.entity_counter
             container.structures.entity_counter += 1
@@ -46,7 +47,7 @@ class TokenProcessing:
                 self.untr.add(src_idx)
                 logging.debug('Skipping stopword')
             else:
-                src_seq_idx, trg_seq_idx = TokenAligner(self.src_tokens, self.trg_tokens).process_alignment(src_idx)
+                src_seq_idx, trg_seq_idx = aligned.process_alignment(src_idx)
                 if src_seq_idx and trg_seq_idx:
                     self._append_aligned_tokens(src_seq_idx, trg_seq_idx)
 
@@ -105,8 +106,6 @@ class TokenProcessing:
         '''Add result token pairs with it output status (don’t update entity distance, it can be called for draft).'''
         status = True
         pos = self.src_tokens[src_idxs[0]]._.position
-        in_stop_words = lambda x: self.src_tokens[x].text in config.stop_words
-        src_idxs = list(dropwhile(in_stop_words, list(dropwhile(in_stop_words, src_idxs))[::-1]))[::-1]
         src_group = [self.src_tokens[i] for i in src_idxs]
         if len(src_idxs) == 1:  # o2o/o2m  # new or existing dict entity
             lemma, entity = container.structures.lemma_dict.add(src_group, [self.trg_tokens[i] for i in trg_idxs])
@@ -175,7 +174,8 @@ class TokenAligner:
                     break
                 src_group.append(i)
             i = start_i
-        self.alignment[start_i, :] = 0
+        src_group.sort()
+        self.alignment[src_group[0] : src_group[-1] + 1, :] = 0
 
         for sj in (1, -1):
             while 0 < j < len(self.trg_tokens) - 1:
@@ -184,14 +184,20 @@ class TokenAligner:
                     break
                 trg_group.append(j)
             j = start_j
-        self.alignment[:, start_j] = 0
+        trg_group.sort()
+        self.alignment[:, trg_group[0] : trg_group[-1] + 1] = 0
 
-        self._append_pairs(sorted(src_group), sorted(trg_group))
+        self._append_pairs(src_group, trg_group)
         self.construct_pairs()
 
     def _append_pairs(self, src_group: list[int], trg_group: list[int]) -> None:
         '''Convert pairs of tokens to groups and save it.'''
-        con = lambda tokens: lambda t: 'Art' in tokens[t].morph.get('PronType') or tokens[t].is_punct
+        con = (
+            lambda tokens: lambda t: 'Art' in tokens[t].morph.get('PronType')
+            or tokens[t].is_punct
+            or tokens[t].text in config.stop_words
+            or not match(r'\p{L}', tokens[t].text)
+        )
         src_group = list(dropwhile(con(self.src_tokens), list(dropwhile(con(self.src_tokens), src_group))[::-1]))[::-1]
         trg_group = list(dropwhile(con(self.trg_tokens), list(dropwhile(con(self.trg_tokens), trg_group))[::-1]))[::-1]
         if not src_group or not trg_group:
