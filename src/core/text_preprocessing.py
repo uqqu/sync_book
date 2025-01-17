@@ -9,6 +9,13 @@ from transformers import AutoModel, AutoTokenizer
 
 class TextPreprocessing:
     def __init__(self) -> None:
+        @spacy.language.Language.component('custom_boundaries')
+        def set_custom_boundaries(doc):
+            for token in doc[:-1]:
+                if '\n' in token.text or token.text == ';':
+                    doc[token.i + 1].is_sent_start = True
+            return doc
+
         for model in (config.source_model, config.target_model):
             if not spacy.util.is_package(model):
                 spacy.cli.download(model)
@@ -16,8 +23,7 @@ class TextPreprocessing:
         self.src_nlp = spacy.load(config.source_model)
         self.trg_nlp = spacy.load(config.target_model)
         for nlp in (self.src_nlp, self.trg_nlp):
-            nlp.add_pipe('sentencizer', before='parser')
-            nlp.get_pipe('sentencizer').punct_chars.update((';', '\n', '\n\n', '\n\n\n'))
+            nlp.add_pipe('custom_boundaries', before='parser')
 
         embedding_model_name = 'sentence-transformers/LaBSE'
         self.embedding_tokenizer = AutoTokenizer.from_pretrained(embedding_model_name)

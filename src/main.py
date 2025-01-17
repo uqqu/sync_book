@@ -89,6 +89,8 @@ class Main:
                 for src_text in sentences:
                     trg_text = container.translator.get_translated_sentence(src_text)
                     src_tokens, trg_tokens = container.text_preprocessor.get_tokens_with_embeddings(src_text, trg_text)
+                    if not src_tokens or not trg_tokens:
+                        continue
                     tokens = TokenProcessing(src_tokens, trg_tokens).process()
                     self.sentences.append(Sentence(src_text, trg_text, tokens))
                     container.structures.sentence_counter += 1

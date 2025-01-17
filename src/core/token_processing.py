@@ -5,7 +5,7 @@ from itertools import dropwhile
 import config
 import dependencies as container
 import numpy as np
-from regex import match
+from regex import match, sub
 from spacy.tokens import Token
 
 from core._structures import Entity, UserToken
@@ -53,6 +53,7 @@ class TokenProcessing:
 
         src_tokens = self._transform_tokens(self.src_tokens)
         trg_tokens = self._transform_tokens(self.trg_tokens)
+
         self.result = [
             ([src_tokens[i] for i in src], [trg_tokens[j] if isinstance(j, np.int64) else j for j in trg], status)
             for src, trg, status in self.result
@@ -92,6 +93,9 @@ class TokenProcessing:
             return False
 
         translation = container.translator.translate(' '.join(s.text for s in seq_tokens))
+        if ''.join(s.text for s in seq_tokens) == translation.replace(' ', ''):
+            return False
+
         entity = container.structures.lemma_trie.add(seq_tokens, Entity(translation))
         entity.update(self.src_tokens[idx]._.position)
         trg = [
@@ -104,6 +108,10 @@ class TokenProcessing:
 
     def _append_aligned_tokens(self, src_idxs: list[int], trg_idxs: list[int]) -> None:
         '''Add result token pairs with it output status (don’t update entity distance, it can be called for draft).'''
+        cleaned_letters = lambda idxs, tokens: sub(r'\P{L}', '', ''.join(tokens[i].text for i in idxs))
+        if cleaned_letters(src_idxs, self.src_tokens) == cleaned_letters(trg_idxs, self.trg_tokens):
+            return
+
         status = True
         pos = self.src_tokens[src_idxs[0]]._.position
         src_group = [self.src_tokens[i] for i in src_idxs]
