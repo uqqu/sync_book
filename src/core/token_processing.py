@@ -33,11 +33,15 @@ class TokenProcessing:
                 self.untr.add(src_idx)
                 container.structures.entity_counter -= 1
                 logging.debug('Skipping punctuation')
-            elif src_token.ent_type_ in config.untranslatable_entities or 'Art' in src_token.morph.get('PronType'):
+            elif (
+                src_token.ent_type_ in config.untranslatable_entities
+                or 'Art' in src_token.morph.get('PronType')
+                or src_token.pos_ == 'NUM'
+            ):
                 self.untr.add(src_idx)
                 logging.debug(
-                    f'Skipping untranslatable entity or article: {src_token.ent_type_}'
-                    f'– {src_token.morph.get("PronType")}'
+                    f'Skipping untranslatable entity ({src_token.ent_type_}), numeral ({src_token.pos_}) or '
+                    f'article ({src_token.morph.get("PronType")})'
                 )
             elif self._trie_search_and_process(src_idx):  # check multiword origin chain
                 logging.debug('Found multiword chain')

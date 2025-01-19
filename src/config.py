@@ -14,7 +14,8 @@ save_results = True
 
 # Main
 input_type = 'text'  # draft, text  # TODO audio, video, fix_structures, none
-output_types = {'draft', 'text', 'audio', 'subs', 'video'}  # draft, text, audio, video, subs  # TODO csv, csv_total
+output_types = {'draft', 'text', 'audio', 'subs', 'video'}  # draft, text, audio, video, subs, csv_a, csv_b, csv_c
+# …c – words only from Current run; b – all known words (full structure) Before run; a – all known words After run
 presaved = {}  # translation, mfa, audio  # reuse processed data from a previous run. Use only with
 # …the same input text. Reusing audio for video can be performed if the previous generation included audio and subs
 # …in this case don’t set audio and subs in output_types for current generation and set manual_subs to False.
@@ -43,7 +44,7 @@ embedding_preprocessing_centering = False
 embedding_aggregator = 'attention'  # Averaging, MaxPooling, MinPooling, Attention
 min_align_weight = 0.66
 vocabulary_postcombining = 2  # combine tokens for output. It runs after the draft and storage stages and only affects
-# …the output. 0 - leave as they are, 1 - combine only neighbouring, 2 - combine through stopwords and punctuation
+# …the output. 0 – leave as they are, 1 – combine only neighbouring, 2 – combine through stopwords, 3 – …and punct
 postcombining_max_num = 2  # max number of entities thet will be merged with the current into a single.
 # … Stopwords and punct don’t count
 
@@ -93,7 +94,7 @@ ssml_vocabulary_volume = '-5dB'  # '' | '{sign}{int}dB' | 'silent'/'x-soft'/'sof
 # Video
 manual_subs = False  # False = apply .ass file as hardsub on a clean background using ffmpeg.
 # …Otherwise set the text manually using moviepy. It is much longer and a bit curvier, but potentially more manageable
-sub_colors = ('FFFFFF', 'FFFF00', 'AAFFAA', 'FFAAAA')  # (main, pronounce hl, known words hl, untranslatable words hl)
+sub_colors = ('FFFFFF', 'FFFF00', 'CCFFCC', 'FFAAAA')  # (main, pronounce hl, known words hl, untranslatable words hl)
 # …For the last two you can set None to disable the highlighting of known/untranslatable words in general
 highlight_after_main_sentence = False  # highlight known/untranslatable words only after the main sentence is spoken
 video_width = 1920  # height is automatically adjusted

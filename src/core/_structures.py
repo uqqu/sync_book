@@ -41,26 +41,25 @@ class StructureManager:
         with open(filepath, 'wb') as file:
             pickle.dump((self.lemma_dict, self.lemma_trie, self.entity_counter, self.sentence_counter), file)
 
-    def print_structures(self) -> None:
-        '''Representation of the structures for debug and control.'''
+    def get_pairs(self) -> list[tuple[str, str]]:
+        '''Get text from leafs with their paths from trie and lemma level from dict structure.'''
 
-        def _print_trie(elem: dict[str, LemmaTrie | Entity], spaces: int = 0) -> None:
+        def get_trie_elems(elem: dict[str, LemmaTrie | Entity], path: list[str]) -> list[tuple[str, str]]:
+            results = []
             for word, child in elem.items():
                 if isinstance(child, LemmaTrie):
-                    print(f'{" " * spaces}{word}')
-                    _print_trie(child.children, spaces + len(word) + 1)
+                    results.extend(get_trie_elems(child.children, path + [word]))
                 else:
-                    print(f'{" " * spaces}{child.translation=} {child.level=} {child.last_pos=}')
+                    results.append((' '.join(path), f'{child.translation} ({child.level})'))
+            return results
 
-        print('-> Trie:')
-        _print_trie(self.lemma_trie.children)
+        trie_results = get_trie_elems(self.lemma_trie.children, [])
 
-        print('-> Dict')
+        dict_results = []
         for lemma, child in self.lemma_dict.children.items():
-            print(lemma)
-            spaces = len(lemma)
-            for form, entity in child.children.items():
-                print(' ' * spaces, form, entity.translation, entity.level, entity.last_pos)
+            src, trg = lemma.split('–—-')
+            dict_results.append((src, f'{trg} ({child.level})'))
+        return trie_results + dict_results
 
 
 @dataclass
@@ -126,12 +125,12 @@ class LemmaDict(BaseNode):
         trg_lemma = ' '.join(t.lemma_.lower() if t.lemma_ else '' for t in trg)
         trg_text = ' '.join(t.text.lower() for t in trg)
 
-        lemma_key = f'{src_lemma}-{trg_lemma}'.lower()
+        lemma_key = f'{src_lemma}–—-{trg_lemma}'.lower()
         if lemma_key not in self.children:
             self.children[lemma_key] = LemmaDict()
         lemma_obj = self.children[lemma_key]
 
-        ent_key = f'{src_text}-{trg_text}'.lower()
+        ent_key = f'{src_text}–—-{trg_text}'.lower()
         if ent_key not in lemma_obj.children:  # type: ignore
             lemma_obj.children[ent_key] = Entity(trg_text)  # type: ignore
 

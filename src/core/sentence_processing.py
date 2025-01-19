@@ -26,22 +26,9 @@ class Sentence:
         )
 
     def update_positions(self) -> None:
-        '''Apply new positions to user structure after text processing or draft load; and combine token sequences.'''
-        next_src_idx = {a.index: b.index for a, b in pairwise(self.src_tokens)} | {self.src_tokens[-1].index: -1}
-        next_trg_idx = {a.index: b.index for a, b in pairwise(self.trg_tokens)} | {self.trg_tokens[-1].index: -1, None: -1}
-        skipped_src_idx = {}
-        skipped_trg_idx = {}
-        if config.vocabulary_postcombining == 2:
-            skipped_src_idx = {t.index: t for t in self.src_tokens if t.is_punct or t.text in config.stop_words}
-            skipped_trg_idx = {t.index: t for t in self.trg_tokens if t.is_punct or t.text in config.stop_words}
-        groups = []
-        prev_group = ()
-        confirmed_group_len = (0, 0)
-        max_comb_num = config.postcombining_max_num
-        for src_voc, trg_voc, status in self.vocabulary:
-            if not status:
-                continue
-
+        '''Apply new positions to user structure after text processing or draft load.'''
+        self.vocabulary = [voc[:2] for voc in self.vocabulary if voc[2]]  # type: ignore
+        for src_voc, trg_voc in self.vocabulary:
             pos = src_voc[0].position
             if len(src_voc) > 1:  # trie
                 entity, _ = container.structures.lemma_trie.search(src_voc)
@@ -55,40 +42,57 @@ class Sentence:
                     lemma.update(pos)
                     entity.update(pos)
 
-            if not config.vocabulary_postcombining:
-                groups.append((src_voc, trg_voc))
-            elif not prev_group:
+    def vocabulary_postcombining(self) -> None:
+        '''Group neighboring tokens into a single output entity (does not affect structure storing).
+
+        With vocabulary_postcombining option == 2 they are combined through uncounted words (punct, stop-words).
+        Lenght of combining is adjustable with the postcomining_max_num option.
+        '''
+        next_src_idx = {a.index: b.index for a, b in pairwise(self.src_tokens)} | {self.src_tokens[-1].index: -1}
+        next_trg_idx = {a.index: b.index for a, b in pairwise(self.trg_tokens)} | {self.trg_tokens[-1].index: -1}
+        next_trg_idx |= {None: -1}
+        skipped_src_idx = {}
+        skipped_trg_idx = {}
+        if config.vocabulary_postcombining == 2:
+            skipped_src_idx = {t.index: t for t in self.src_tokens if t.text in config.stop_words}
+            skipped_trg_idx = {t.index: t for t in self.trg_tokens if t.text in config.stop_words}
+        elif config.vocabulary_postcombining == 3:
+            skipped_src_idx = {t.index: t for t in self.src_tokens if t.is_punct or t.text in config.stop_words}
+            skipped_trg_idx = {t.index: t for t in self.trg_tokens if t.is_punct or t.text in config.stop_words}
+        groups = []
+        prev_group = ()
+        confirmed_group_len = (0, 0)
+        max_comb_num = config.postcombining_max_num
+        for src_voc, trg_voc in self.vocabulary:
+            if not prev_group:
                 prev_group = (src_voc, trg_voc)
                 confirmed_group_len = (len(prev_group[0]), len(prev_group[1]))
                 max_comb_num = config.postcombining_max_num
-            else:
-                b = True
-                while True:
-                    if (si := next_src_idx[prev_group[0][-1].index]) in skipped_src_idx:
-                        prev_group[0].append(skipped_src_idx[si])
-                    elif (ti := next_trg_idx[prev_group[1][-1].index]) in skipped_trg_idx:
-                        prev_group[1].append(skipped_trg_idx[ti])
-                    elif b and max_comb_num and src_voc[-1].index == si and trg_voc[-1].index == ti:
-                        b = False
-                        max_comb_num -= 1
-                        prev_group[0].extend(src_voc)
-                        prev_group[1].extend(trg_voc)
-                        confirmed_group_len = (len(prev_group[0]), len(prev_group[1]))
-                    elif b:
-                        groups.append((prev_group[0][:confirmed_group_len[0]], prev_group[1][:confirmed_group_len[1]]))
-                        if b:
-                            prev_group = (src_voc, trg_voc)
-                            confirmed_group_len = (len(prev_group[0]), len(prev_group[1]))
-                        else:
-                            prev_group = ()
-                            confirmed_group_len = (0, 0)
-                        max_comb_num = config.postcombining_max_num
-                        break
-                    else:
-                        break
+                continue
+
+            addition_flag = True  # append only one vocabulary entity per iteration
+            while True:
+                if (si := next_src_idx[prev_group[0][-1].index]) in skipped_src_idx:
+                    prev_group[0].append(skipped_src_idx[si])
+                elif (ti := next_trg_idx[prev_group[1][-1].index]) in skipped_trg_idx:
+                    prev_group[1].append(skipped_trg_idx[ti])
+                elif addition_flag and max_comb_num and src_voc[-1].index == si and trg_voc[-1].index == ti:
+                    addition_flag = False
+                    max_comb_num -= 1
+                    prev_group[0].extend(src_voc)
+                    prev_group[1].extend(trg_voc)
+                    confirmed_group_len = (len(prev_group[0]), len(prev_group[1]))
+                elif addition_flag:
+                    groups.append((prev_group[0][: confirmed_group_len[0]], prev_group[1][: confirmed_group_len[1]]))
+                    prev_group = (src_voc, trg_voc)
+                    confirmed_group_len = (len(prev_group[0]), len(prev_group[1]))
+                    max_comb_num = config.postcombining_max_num
+                    break
+                else:
+                    break
 
         if prev_group and config.vocabulary_postcombining:
-            groups.append((prev_group[0][:confirmed_group_len[0]], prev_group[1][:confirmed_group_len[1]]))
+            groups.append((prev_group[0][: confirmed_group_len[0]], prev_group[1][: confirmed_group_len[1]]))
         self.vocabulary = groups
 
     def gen_62(self, start: int = 0):
