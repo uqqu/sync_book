@@ -45,7 +45,7 @@ class Sentence:
     def vocabulary_postcombining(self) -> None:
         '''Group neighboring tokens into a single output entity (does not affect structure storing).
 
-        With vocabulary_postcombining option == 2 they are combined through uncounted words (punct, stop-words).
+        With vocabulary_postcombining option in {2, 3} they are combined through uncounted words (stop-words, +punct).
         Lenght of combining is adjustable with the postcomining_max_num option.
         '''
         next_src_idx = {a.index: b.index for a, b in pairwise(self.src_tokens)} | {self.src_tokens[-1].index: -1}

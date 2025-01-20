@@ -22,7 +22,7 @@ presaved = {}  # translation, mfa, audio  # reuse processed data from a previous
 
 ignore_warnings = False  # don’t stop if config warnings are detected
 
-translation_provider = 'Argos'  # GoogleCloud, Argos  # TODO DeepL, Yandex
+translation_provider = 'Argos'  # GoogleCloud, Argos, DeepL  # TODO Yandex
 align_with_translation_file = False
 untranslatable_entities = {'PERSON', 'PER', 'DATE'}  # PRODUCT, TIME?
 
@@ -59,8 +59,8 @@ synthesis_model = 'tts_models/multilingual/multi-dataset/xtts_v2'  # for CoquiTT
 source_voice = 'en-US-Wavenet-C'  # en-US-Wavenet-C, Tammie Ema  # for GC and CoquiTTS
 target_voice = 'ru-RU-Wavenet-C'  # for GC only
 
-sentence_pronunciation_speed = 1
-vocabulary_pronunciation_speed = 0.8
+sentence_pronunciation_speed = 0.9
+vocabulary_pronunciation_speed = 0.75
 
 break_between_sentences_ms = 400
 break_between_vocabulary_ms = 400
@@ -69,6 +69,8 @@ break_in_vocabulary_ms = 100
 # # for the "long" synthesis (>5000b for segment) with GoogleCloud
 google_cloud_project_id = getenv('GCP_ID')
 google_cloud_project_location = getenv('GCP_location')
+
+deepl_key = getenv('DeepL_key')  # https://www.deepl.com/en/your-account/keys
 
 # Audio alignment. To reuse words from a synthesized sentence in a vocabulary or visual alignment on the video
 crossfade_ms = 50  # on the borders of each entity in vocabulary

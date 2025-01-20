@@ -7,6 +7,7 @@ import argostranslate.package
 import argostranslate.translate
 import config
 import dependencies as container
+import requests
 from google.cloud import translate_v2
 from sentence_transformers import SentenceTransformer
 
@@ -45,6 +46,33 @@ class GCTranslateProvider:
         return response['translatedText']
 
 
+class DeepLProvider:
+    '''DeepL translator. Requires DeepL_key environment variable.'''
+
+    def __init__(self) -> None:
+        logging.info(f'Current state of DeepL monthly free usage limit: {self.get_usage()}')
+
+    def translate(self, text: str) -> str:
+        params = {
+            'auth_key': config.deepl_key,
+            'text': text,
+            'source_lang': config.source_lang,
+            'target_lang': config.target_lang,
+        }
+
+        response = requests.post('https://api-free.deepl.com/v2/translate', data=params)
+        if response.status_code == 200:
+            return response.json()['translations'][0]['text']
+
+        logging.error('Error when receiving a DeepL translation')
+        return ''
+
+    def get_usage(self) -> str:
+        response = requests.get('https://api-free.deepl.com/v2/usage', params={'auth_key': config.deepl_key})
+        data = response.json()
+        return f'{data["character_count"]}/{data["character_limit"]}'
+
+
 class Translator:
     def __init__(self) -> None:
         self.translated: dict[str, str] = {}
@@ -53,6 +81,8 @@ class Translator:
                 self.provider = GCTranslateProvider()
             case 'Argos':
                 self.provider = ArgosTranslateProvider()  # type: ignore
+            case 'DeepL':
+                self.provider = DeepLProvider()  # type: ignore
             case value:
                 raise ValueError(f'Unknown translation_provider value ({value}).')
 
